@@ -175,3 +175,5 @@ XlsxWriter==3.2.3
 yarg==0.1.9
 yarl==1.17.1
 yfinance==0.2.37
+plotly
+streamlit
