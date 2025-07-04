@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 st.set_page_config(layout="wide", page_title="Planejamento de Despesas")
-
 st.title("Planejamento de Despesas")
 
 anos = [f"Ano {i+1}" for i in range(5)]
-inflacao_padrao = 0.04  # 4%
+inflacao_padrao = 0.04
 
 # --- INFLAÇÃO ---
 st.markdown("### 📈 Taxas de Inflação Anual")
@@ -15,7 +16,6 @@ col1, col2 = st.columns(2)
 inflacoes = []
 for i, ano in enumerate(anos):
     with (col1 if i % 2 == 0 else col2):
-        # Usar session_state.get para persistir o valor da inflação entre reruns
         valor = st.number_input(
             f"Inflação estimada para {ano} (%)",
             min_value=0.0,
@@ -24,148 +24,196 @@ for i, ano in enumerate(anos):
         )
         inflacoes.append(valor)
 
-# --- GERENCIAMENTO DE DESPESAS ---
+# --- DESPESAS ---
 st.markdown("### 💰 Gerenciamento de Despesas")
 
-# Inicializa o estado das despesas e do modo de edição
 if 'despesas' not in st.session_state:
     st.session_state['despesas'] = []
 if 'editing_expense_index' not in st.session_state:
     st.session_state['editing_expense_index'] = None
 
-# Determina se estamos no modo de edição
 is_editing = st.session_state['editing_expense_index'] is not None
-expense_to_edit = None
-if is_editing:
-    expense_to_edit = st.session_state['despesas'][st.session_state['editing_expense_index']]
+expense_to_edit = st.session_state['despesas'][st.session_state['editing_expense_index']] if is_editing else None
 
-# Formulário para adicionar/editar despesas
-# clear_on_submit=True apenas se não estiver editando
 with st.form("form_despesa", clear_on_submit=not is_editing):
     st.subheader(f"{'Editar' if is_editing else 'Adicionar'} Despesa")
 
-    # Preenche os campos com os valores da despesa sendo editada, ou vazios para nova despesa
     default_nome = expense_to_edit['Despesa'] if is_editing else ""
     default_valor = expense_to_edit['Valor'] if is_editing else 0.0
-    # Encontra o índice da categoria padrão para o selectbox
-    categorias_disponiveis = ["Operacional", "RH", "Administrativa", "Extra Operacional", "Dividendos", "Impostos"]
-    default_categoria_index = categorias_disponiveis.index(default_categoria) if (default_categoria := expense_to_edit['Categoria'] if is_editing else "Operacional") in categorias_disponiveis else 0
+    categorias = ["Operacional", "RH", "Administrativa", "Extra Operacional", "Dividendos", "Impostos"]
+    default_categoria_index = categorias.index(
+        expense_to_edit['Categoria']) if is_editing and expense_to_edit['Categoria'] in categorias else 0
 
-    nome_despesa = st.text_input("Nome da Despesa", value=default_nome, key="nome_despesa_input")
-    valor_despesa = st.number_input("Valor Anual (R$)", min_value=0.0, step=100.0, value=default_valor, key="valor_despesa_input")
-    categoria = st.selectbox(
-        "Categoria",
-        categorias_disponiveis,
-        index=default_categoria_index,
-        key="categoria_select"
-    )
+    nome = st.text_input("Nome da Despesa", value=default_nome, key="nome_despesa_input")
+    valor = st.number_input("Valor Anual (R$)", min_value=0.0, step=100.0, value=default_valor, key="valor_despesa_input")
+    categoria = st.selectbox("Categoria", categorias, index=default_categoria_index, key="categoria_select")
 
-    col_buttons = st.columns([1, 1, 4]) # Colunas para os botões do formulário
-
+    col_buttons = st.columns([1, 1, 4])
     with col_buttons[0]:
-        submit_button = st.form_submit_button(
-            f"{'Atualizar' if is_editing else 'Adicionar'} Despesa"
-        )
+        submit = st.form_submit_button("Atualizar" if is_editing else "Adicionar")
     with col_buttons[1]:
         if is_editing:
-            cancel_button = st.form_submit_button("Cancelar Edição")
+            cancel = st.form_submit_button("Cancelar Edição")
 
-    # Lógica de submissão do formulário
-    if submit_button:
-        if not nome_despesa or valor_despesa <= 0:
-            st.warning("Preencha todos os campos corretamente (Nome e Valor > 0).")
+    if submit:
+        if not nome or valor <= 0:
+            st.warning("Preencha todos os campos corretamente.")
         else:
-            new_expense_data = {
-                "Despesa": nome_despesa.strip(),
-                "Valor": valor_despesa,
-                "Categoria": categoria
-            }
+            nova_despesa = {"Despesa": nome.strip(), "Valor": valor, "Categoria": categoria}
             if is_editing:
-                st.session_state['despesas'][st.session_state['editing_expense_index']] = new_expense_data
-                st.session_state['editing_expense_index'] = None # Sai do modo de edição
-                st.success("Despesa atualizada com sucesso!")
+                st.session_state['despesas'][st.session_state['editing_expense_index']] = nova_despesa
+                st.session_state['editing_expense_index'] = None
             else:
-                st.session_state['despesas'].append(new_expense_data)
-                st.success("Despesa adicionada com sucesso!")
-            st.rerun() # Força o re-render para atualizar a lista e limpar o formulário
+                st.session_state['despesas'].append(nova_despesa)
+            st.rerun()
 
-    # Lógica do botão Cancelar Edição
-    if is_editing and cancel_button:
+    if is_editing and cancel:
         st.session_state['editing_expense_index'] = None
-        st.rerun() # Força o re-render para sair do modo de edição
+        st.rerun()
 
-# Exibição das despesas cadastradas com botões de ação
+# --- EMPRÉSTIMOS ---
+st.markdown("### 🏦 Cadastro de Empréstimos e Financiamentos")
+
+def format_brl(valor):
+    return f"R$ {valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
+
+if "emprestimos" not in st.session_state:
+    st.session_state["emprestimos"] = []
+if "editing_loan_index" not in st.session_state:
+    st.session_state["editing_loan_index"] = None
+
+editing_loan = st.session_state["editing_loan_index"] is not None
+emprestimo_to_edit = st.session_state["emprestimos"][st.session_state["editing_loan_index"]] if editing_loan else {}
+
+with st.form("form_emprestimo", clear_on_submit=not editing_loan):
+    st.subheader(f"{'Editar' if editing_loan else 'Cadastrar'} Empréstimo")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        banco = st.text_input("Banco", value=emprestimo_to_edit.get("banco", ""))
+        titular = st.text_input("Titular", value=emprestimo_to_edit.get("titular", ""))
+        contrato = st.text_input("Contrato Número", value=emprestimo_to_edit.get("contrato", ""))
+        data = st.date_input("Data do Contrato", format="DD/MM/YYYY",
+                             value=pd.to_datetime(emprestimo_to_edit.get("data", datetime.today())))
+        valor_total = st.number_input("Valor Total do Empréstimo", min_value=0.0, step=1000.0, format="%.2f",
+                                      value=emprestimo_to_edit.get("valor_total", 0.0))
+        objeto = st.text_input("Objeto", value=emprestimo_to_edit.get("objeto", ""))
+
+    with col2:
+        recursos = st.text_input("Recursos", value=emprestimo_to_edit.get("recursos", ""))
+        encargos = st.number_input("Encargos (% ao ano)", min_value=0.0, step=0.1,
+                                   value=emprestimo_to_edit.get("encargos", 0.0))
+        parcelas = st.number_input("Quantidade de Parcelas", min_value=1, step=1,
+                                   value=emprestimo_to_edit.get("parcelas", 1))
+        valor_parcela = st.number_input("Valor Parcela (R$)", min_value=0.0, step=100.0,
+                                        value=emprestimo_to_edit.get("valor_parcela", 0.0))
+        periodicidade = st.selectbox("Período de Pagamento", ["ANUAL", "SEMESTRAL", "MENSAL"],
+                                     index=["ANUAL", "SEMESTRAL", "MENSAL"].index(
+                                         emprestimo_to_edit.get("periodo", "ANUAL")))
+
+        meses_intervalo = {"ANUAL": 12, "SEMESTRAL": 6, "MENSAL": 1}[periodicidade]
+        primeira_parcela = datetime(data.year + 1, 5, 15)
+        ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (parcelas - 1))
+        data_final = st.date_input("Data da Última Parcela", format="DD/MM/YYYY",
+                                   value=pd.to_datetime(datetime.today() if not editing_loan else ultima_parcela))
+
+    enviar = st.form_submit_button("Atualizar" if editing_loan else "Cadastrar")
+
+    if enviar:
+        novo = {
+            "banco": banco,
+            "titular": titular,
+            "contrato": contrato,
+            "data": str(data),
+            "valor_total": valor_total,
+            "objeto": objeto,
+            "recursos": recursos,
+            "encargos": encargos,
+            "parcelas": parcelas,
+            "valor_parcela": valor_parcela,
+            "periodo": periodicidade,
+            "data_ultima_parcela": data_final.strftime("%d/%m/%Y")
+        }
+
+        if editing_loan:
+            st.session_state["emprestimos"][st.session_state["editing_loan_index"]] = novo
+            st.session_state["editing_loan_index"] = None
+        else:
+            st.session_state["emprestimos"].append(novo)
+        st.success("Empréstimo salvo com sucesso!")
+        st.rerun()
+
+# --- EXIBIÇÃO DE DESPESAS ---
 st.markdown("### Despesas Cadastradas")
 with st.expander("Despesas Cadastradas"):
     if not st.session_state['despesas']:
-        st.info("Nenhuma despesa cadastrada ainda.")
+        st.info("Nenhuma despesa cadastrada.")
     else:
-        # Cabeçalho da tabela de despesas
-        header_cols = st.columns([3, 2, 2, 1, 1])
-        header_cols[0].write("**Despesa**")
-        header_cols[1].write("**Valor Anual**")
-        header_cols[2].write("**Categoria**")
-        header_cols[3].write("") # Coluna para botões
-        header_cols[4].write("") # Coluna para botões
+        for i, d in enumerate(st.session_state['despesas']):
+            cols = st.columns([3, 2, 2, 1, 1])
+            cols[0].write(d["Despesa"])
+            cols[1].write(format_brl(d["Valor"]))
+            cols[2].write(d["Categoria"])
+            if cols[3].button("Editar", key=f"edit_{i}"):
+                st.session_state['editing_expense_index'] = i
+                st.rerun()
+            if cols[4].button("Excluir", key=f"del_{i}"):
+                st.session_state['despesas'].pop(i)
+                st.rerun()
 
-        # Itera sobre as despesas para exibi-las com botões
-        for i, expense in enumerate(st.session_state['despesas']):
-            cols = st.columns([3, 2, 2, 1, 1]) # Colunas para cada linha de despesa
-            cols[0].write(expense["Despesa"])
-            cols[1].write(f"R$ {expense['Valor']:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-            cols[2].write(expense["Categoria"])
+# --- EXIBIÇÃO DOS EMPRÉSTIMOS ---
+st.markdown("### Empréstimos Cadastrados")
+with st.expander("Empréstimos"):
+    if not st.session_state["emprestimos"]:
+        st.info("Nenhum empréstimo cadastrado.")
+    else:
+        for i, e in enumerate(st.session_state["emprestimos"]):
+            cols = st.columns([2, 2, 2, 2, 2, 1, 1])
+            cols[0].write(e["banco"])
+            cols[1].write(e["titular"])
+            cols[2].write(e["objeto"])
+            cols[3].write(format_brl(e["valor_total"]))
+            cols[4].write(e.get("data_ultima_parcela", "Não informado"))
+            if cols[5].button("Editar", key=f"edit_loan_{i}"):
+                st.session_state["editing_loan_index"] = i
+                st.rerun()
+            if cols[6].button("Excluir", key=f"del_loan_{i}"):
+                st.session_state["emprestimos"].pop(i)
+                st.rerun()
 
-            with cols[3]:
-                # Botão Editar - define o índice da despesa a ser editada e re-renderiza
-                if st.button("Editar", key=f"edit_{i}"):
-                    st.session_state['editing_expense_index'] = i
-                    st.rerun()
-            with cols[4]:
-                # Botão Excluir - remove a despesa da lista e re-renderiza
-                if st.button("Excluir", key=f"delete_{i}"):
-                    st.session_state['despesas'].pop(i)
-                    st.rerun()
-
-# --- CÁLCULO E EXIBIÇÃO DO FLUXO DE DESPESAS ---
+# --- PROJEÇÃO ---
 st.markdown("---")
 st.markdown("### 📊 Projeção de Despesas com Inflação")
 
-if not st.session_state['despesas']:
-    st.info("Adicione despesas para ver a projeção.")
+if not st.session_state['despesas'] and not st.session_state['emprestimos']:
+    st.info("Adicione despesas ou empréstimos para ver a projeção.")
 else:
-    # Cria um DataFrame temporário a partir das despesas do session_state
-    df_despesas_calc = pd.DataFrame(st.session_state['despesas'])
-
-    # Normaliza o nome da despesa e agrupa para somar valores duplicados
-    df_despesas_calc['Despesa_Normalized'] = df_despesas_calc['Despesa'].astype(str).str.strip()
-    # Se quiser agrupar ignorando maiúsculas/minúsculas, descomente a linha abaixo:
-    # df_despesas_calc['Despesa_Normalized'] = df_despesas_calc['Despesa_Normalized'].str.lower()
-
-    df_despesas_grouped = df_despesas_calc.groupby('Despesa_Normalized')['Valor'].sum().reset_index()
-    df_despesas_grouped.set_index('Despesa_Normalized', inplace=True)
+    df_desp = pd.DataFrame(st.session_state['despesas'])
+    df_desp['Despesa_Normalized'] = df_desp['Despesa'].str.strip()
+    group = df_desp.groupby('Despesa_Normalized')['Valor'].sum()
 
     fluxo = {}
     for i, ano in enumerate(anos):
         fator = np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)])
-        fluxo[ano] = df_despesas_grouped["Valor"] * fator
+        fluxo[ano] = group * fator if not group.empty else pd.Series(dtype=float)
 
     df_fluxo = pd.DataFrame(fluxo)
-    df_fluxo.index.name = "Despesa" # Renomeia o índice para clareza na exibição
 
-    # Formatação brasileira
-    def format_brl(valor):
-        return f"R$ {valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
+    for emp in st.session_state["emprestimos"]:
+        linha = f"Empréstimo: {emp['objeto']}"
+        for i in range(min(emp["parcelas"], 5)):
+            ano = f"Ano {i+1}"
+            if linha not in df_fluxo.index:
+                df_fluxo.loc[linha] = 0
+            df_fluxo.loc[linha, ano] += emp["valor_parcela"]
 
+    df_fluxo.index.name = "Despesa"
     st.dataframe(df_fluxo.style.format(format_brl))
-
-    # Guardar no session_state para outras páginas
     st.session_state['fluxo_caixa'] = df_fluxo
 
-# --- BOTÃO "LIMPAR TUDO" ---
+# --- LIMPAR TUDO ---
 st.markdown("### ⚙️ Ações Gerais")
 if st.button("Limpar Tudo", key="btn_clear_all"):
-    st.session_state['despesas'] = []  # Limpa todas as despesas
-    st.session_state['fluxo_caixa'] = None  # Limpa o fluxo de caixa
-    st.session_state['editing_expense_index'] = None  # Sai do modo de edição
+    st.session_state.clear()
     st.success("Todos os dados foram limpos!")
-    st.rerun()  # Força o re-render para atualizar a interface
+    st.rerun()
