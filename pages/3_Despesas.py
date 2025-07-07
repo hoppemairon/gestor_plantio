@@ -3,12 +3,30 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Planejamento de Despesas")
 st.title("Planejamento de Despesas")
 
 anos = [f"Ano {i+1}" for i in range(5)]
 inflacao_padrao = 0.04
+
+# --- Função para formatar valores em BRL ---
+def format_brl(valor):
+    return f"R$ {valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
+
+# --- Inicialização do st.session_state ---
+if "despesas" not in st.session_state:
+    st.session_state["despesas"] = []
+
+if "emprestimos" not in st.session_state:
+    st.session_state["emprestimos"] = []
+
+if "editing_expense_index" not in st.session_state:
+    st.session_state["editing_expense_index"] = None
+
+if "editing_loan_index" not in st.session_state:
+    st.session_state["editing_loan_index"] = None
 
 # --- INFLAÇÃO ---
 st.markdown("### 📈 Taxas de Inflação Anual")
@@ -24,13 +42,117 @@ for i, ano in enumerate(anos):
         )
         inflacoes.append(valor)
 
-# --- DESPESAS ---
-st.markdown("### 💰 Gerenciamento de Despesas")
+# --- MODELOS DE EXCEL ---
+st.markdown("### 📥 Modelos de Excel para Preenchimento")
 
-if 'despesas' not in st.session_state:
-    st.session_state['despesas'] = []
-if 'editing_expense_index' not in st.session_state:
-    st.session_state['editing_expense_index'] = None
+col_mod1, col_mod2 = st.columns(2)
+
+with col_mod1:
+    st.markdown("**📄 Modelo de Despesas**")
+    modelo_despesas = pd.DataFrame({
+        "Despesa": ["Energia", "Combustível"],
+        "Valor": [10000, 5000],
+        "Categoria": ["Operacional", "Operacional"]
+    })
+
+    buffer_despesas = BytesIO()
+    with pd.ExcelWriter(buffer_despesas, engine='xlsxwriter') as writer:
+        modelo_despesas.to_excel(writer, index=False, sheet_name="Despesas")
+    buffer_despesas.seek(0)
+    st.download_button("⬇️ Baixar Modelo de Despesas", buffer_despesas, file_name="modelo_despesas.xlsx")
+
+with col_mod2:
+    st.markdown("**📄 Modelo de Empréstimos**")
+    modelo_emprestimos = pd.DataFrame({
+        "banco": ["Banco X"],
+        "titular": ["João"],
+        "contrato": ["123"],
+        "data": ["2023-05-10"],
+        "valor_total": [100000],
+        "objeto": ["Trator"],
+        "recursos": ["BNDES"],
+        "encargos": [5.5],
+        "parcelas": [5],
+        "valor_parcela": [20000],
+        "periodo": ["ANUAL"]
+    })
+
+    buffer_emprestimos = BytesIO()
+    with pd.ExcelWriter(buffer_emprestimos, engine='xlsxwriter') as writer:
+        modelo_emprestimos.to_excel(writer, index=False, sheet_name="Emprestimos")
+    buffer_emprestimos.seek(0)
+    st.download_button("⬇️ Baixar Modelo de Empréstimos", buffer_emprestimos, file_name="modelo_emprestimos.xlsx")
+
+# --- IMPORTAÇÃO DE EXCEL ---
+with st.expander("📤 Importar Despesas de Excel"):
+    despesa_file = st.file_uploader("Upload do arquivo de despesas (.xlsx)", type=["xlsx"], key="upload_despesas")
+
+    # Só processa se o arquivo for novo e ainda não importado
+    if despesa_file and not st.session_state.get("despesas_importadas_ok"):
+        try:
+            df_despesas = pd.read_excel(despesa_file)
+            required_cols = {"Despesa", "Valor", "Categoria"}
+            if not required_cols.issubset(df_despesas.columns):
+                st.error(f"Colunas obrigatórias: {required_cols}")
+            else:
+                novas = df_despesas[["Despesa", "Valor", "Categoria"]].dropna().to_dict(orient="records")
+                st.session_state['despesas'].extend(novas)
+                st.session_state["despesas_importadas_ok"] = True  # Marca como já importado
+                st.success(f"{len(novas)} despesas importadas com sucesso!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao ler arquivo: {e}")
+
+with st.expander("📤 Importar Empréstimos de Excel"):
+    emprestimo_file = st.file_uploader("Upload do arquivo de empréstimos (.xlsx)", type=["xlsx"], key="upload_emprestimos")
+    if emprestimo_file and not st.session_state.get("emprestimos_importados_ok"):
+        try:
+            df_emp = pd.read_excel(emprestimo_file)
+            required_cols = {
+                "banco", "titular", "contrato", "data", "valor_total", "objeto",
+                "recursos", "encargos", "parcelas", "valor_parcela", "periodo"
+            }
+            if not required_cols.issubset(df_emp.columns):
+                st.error(f"Colunas obrigatórias: {required_cols}")
+            else:
+                total = len(df_emp)
+                emprestimos_importados = []
+                progress_bar = st.progress(0, text="Iniciando importação de empréstimos...")
+
+                for i, (_, row) in enumerate(df_emp.iterrows()):
+                    data = pd.to_datetime(row["data"])
+                    meses_intervalo = {"ANUAL": 12, "SEMESTRAL": 6, "MENSAL": 1}[row["periodo"]]
+                    primeira_parcela = datetime(data.year + 1, 5, 15)
+                    ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (int(row["parcelas"]) - 1))
+
+                    novo_emp = {
+                        "banco": row["banco"],
+                        "titular": row["titular"],
+                        "contrato": row["contrato"],
+                        "data": str(data.date()),
+                        "valor_total": row["valor_total"],
+                        "objeto": row["objeto"],
+                        "recursos": row["recursos"],
+                        "encargos": row["encargos"],
+                        "parcelas": int(row["parcelas"]),
+                        "valor_parcela": row["valor_parcela"],
+                        "periodo": row["periodo"],
+                        "data_ultima_parcela": ultima_parcela.strftime("%d/%m/%Y")
+                    }
+
+                    emprestimos_importados.append(novo_emp)
+                    progress_bar.progress((i + 1) / total, text=f"Importando {i + 1} de {total} empréstimos...")
+
+                st.session_state["emprestimos"].extend(emprestimos_importados)
+                st.session_state["emprestimos_importados_ok"] = True
+                progress_bar.empty()
+                st.success(f"{total} empréstimos importados com sucesso!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao ler arquivo: {e}")
+
+# --- ADICIONAR DESPESAS MANUALMENTE ---
+st.markdown("### 💰 Gerenciamento de Despesas")
 
 is_editing = st.session_state['editing_expense_index'] is not None
 expense_to_edit = st.session_state['despesas'][st.session_state['editing_expense_index']] if is_editing else None
@@ -101,7 +223,7 @@ with st.form("form_emprestimo", clear_on_submit=not editing_loan):
 
     with col2:
         recursos = st.text_input("Recursos", value=emprestimo_to_edit.get("recursos", ""))
-        encargos = st.number_input("Encargos (% ao ano)", min_value=0.0, step=0.1,
+        encargos = st.text_input("Encargos (% ao ano)",
                                    value=emprestimo_to_edit.get("encargos", 0.0))
         parcelas = st.number_input("Quantidade de Parcelas", min_value=1, step=1,
                                    value=emprestimo_to_edit.get("parcelas", 1))
@@ -185,35 +307,43 @@ with st.expander("Empréstimos"):
 st.markdown("---")
 st.markdown("### 📊 Projeção de Despesas com Inflação")
 
-if not st.session_state['despesas'] and not st.session_state['emprestimos']:
+tem_despesas = st.session_state.get('despesas') and isinstance(st.session_state['despesas'], list)
+tem_emprestimos = st.session_state.get('emprestimos') and isinstance(st.session_state['emprestimos'], list)
+
+if not tem_despesas and not tem_emprestimos:
     st.info("Adicione despesas ou empréstimos para ver a projeção.")
 else:
-    df_desp = pd.DataFrame(st.session_state['despesas'])
-    df_desp['Despesa_Normalized'] = df_desp['Despesa'].str.strip()
-    group = df_desp.groupby('Despesa_Normalized')['Valor'].sum()
+    # Inicializa df_fluxo com colunas dos anos, mesmo se vazio
+    df_fluxo = pd.DataFrame(columns=anos)
 
-    fluxo = {}
-    for i, ano in enumerate(anos):
-        fator = np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)])
-        fluxo[ano] = group * fator if not group.empty else pd.Series(dtype=float)
+    if tem_despesas:
+        df_desp = pd.DataFrame(st.session_state['despesas'])
 
-    df_fluxo = pd.DataFrame(fluxo)
+        if not df_desp.empty and "Despesa" in df_desp.columns and "Valor" in df_desp.columns:
+            df_desp['Despesa_Normalized'] = df_desp['Despesa'].astype(str).str.strip()
+            group = df_desp.groupby('Despesa_Normalized')['Valor'].sum()
 
-    for emp in st.session_state["emprestimos"]:
-        linha = f"Empréstimo: {emp['objeto']}"
-        for i in range(min(emp["parcelas"], 5)):
-            ano = f"Ano {i+1}"
+            for i, ano in enumerate(anos):
+                fator = np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)])
+                df_fluxo[ano] = group * fator if not group.empty else 0
+
+    if tem_emprestimos:
+        for emp in st.session_state['emprestimos']:
+            linha = f"Empréstimo: {emp['objeto']}"
             if linha not in df_fluxo.index:
-                df_fluxo.loc[linha] = 0
-            df_fluxo.loc[linha, ano] += emp["valor_parcela"]
+                df_fluxo.loc[linha] = [0] * len(anos)
+            for i in range(min(emp["parcelas"], len(anos))):
+                ano = f"Ano {i+1}"
+                df_fluxo.at[linha, ano] += emp["valor_parcela"]
 
     df_fluxo.index.name = "Despesa"
     st.dataframe(df_fluxo.style.format(format_brl))
     st.session_state['fluxo_caixa'] = df_fluxo
 
 # --- LIMPAR TUDO ---
-st.markdown("### ⚙️ Ações Gerais")
 if st.button("Limpar Tudo", key="btn_clear_all"):
-    st.session_state.clear()
-    st.success("Todos os dados foram limpos!")
+    keys_to_clear = list(st.session_state.keys())
+    for key in keys_to_clear:
+        del st.session_state[key]
+    st.success("Todos os dados e uploads foram limpos!")
     st.rerun()
