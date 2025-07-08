@@ -145,11 +145,26 @@ def aplicar_estilo_dre(linha):
     else:
         return ["" for _ in linha]
 
-def gerar_excel_download(df_fluxo, df_dre, nome_cenario):
+def aplicar_estilo_retorno(linha):
+    return ["background-color: #FF4040; color: white;" if x <= 0 else "" for x in linha]
+
+def gerar_excel_download(df_fluxo, df_dre, df_retorno, nome_cenario):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Formatar Fluxo de Caixa e DRE com formato de moeda
         df_fluxo.to_excel(writer, sheet_name="Fluxo de Caixa")
         df_dre.to_excel(writer, sheet_name="DRE")
+        # Formatar Retorno por Real Gasto como moeda
+        workbook = writer.book
+        worksheet = writer.sheets["Retorno por Real Gasto"] = workbook.add_worksheet("Retorno por Real Gasto")
+        currency_format = workbook.add_format({'num_format': 'R$ #,##0.00'})
+        for col_num, value in enumerate(df_retorno.columns.values):
+            worksheet.write(0, col_num + 1, value)
+        for row_num, value in enumerate(df_retorno.index.values):
+            worksheet.write(row_num + 1, 0, value)
+        for row_num, row_data in enumerate(df_retorno.values):
+            for col_num, value in enumerate(row_data):
+                worksheet.write(row_num + 1, col_num + 1, value, currency_format)
         writer.close()
     output.seek(0)
 
@@ -298,6 +313,33 @@ for aba, nome in zip(abas, nomes_cenarios):
             height=458
         )
 
+        # === CÁLCULO DO RETORNO POR REAL GASTO ===
+        st.subheader(f"📈 Retorno por Real Gasto - Cenário {nome}")
+        despesas_totais = (
+            df_dre.loc["Impostos Sobre Venda"]
+            + df_dre.loc["Despesas Operacionais"]
+            + df_dre.loc["Despesas Administrativas"]
+            + df_dre.loc["Despesas RH"]
+            + df_dre.loc["Despesas Extra Operacional"]
+            + df_dre.loc["Dividendos"]
+            + df_dre.loc["Impostos Sobre Resultado"]
+        )
+        retorno_por_real = [lucro / despesa if despesa > 0 else 0 for lucro, despesa in zip(df_dre.loc["Lucro Líquido"], despesas_totais)]
+        
+        df_retorno = pd.DataFrame({"Retorno por Real Gasto (R$)": retorno_por_real}, index=anos).T
+        for i, retorno in enumerate(retorno_por_real):
+            if retorno <= 0:
+                st.warning(f"Ano {i+1}: Sem lucro líquido (retorno não positivo).")
+            else:
+                st.success(f"Ano {i+1}: Cada R\$ 1,00 gasto gera {format_brl(retorno)} de lucro líquido.")
+
+        st.dataframe(
+            df_retorno.style
+                .format(format_brl)
+                .apply(aplicar_estilo_retorno, axis=1),
+            use_container_width=True
+        )
+
         # 🔄 Adiciona os empréstimos ao df_despesas_info com Categoria 'Extra Operacional'
         emprestimos_detalhados = []
         if "emprestimos" in st.session_state:
@@ -310,4 +352,4 @@ for aba, nome in zip(abas, nomes_cenarios):
                     "Categoria": "Extra Operacional"
                 })
 
-        gerar_excel_download(df_fluxo, df_dre, nome)
+        gerar_excel_download(df_fluxo, df_dre, df_retorno, nome)
