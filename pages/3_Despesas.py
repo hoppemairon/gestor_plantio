@@ -74,7 +74,9 @@ with col_mod2:
         "encargos": [5.5],
         "parcelas": [5],
         "valor_parcela": [20000],
-        "periodo": ["ANUAL"]
+        "periodo": ["ANUAL"],
+        "ano_inicial": ["Ano 1"],
+        "ano_final": ["Ano 5"]
     })
 
     buffer_emprestimos = BytesIO()
@@ -87,7 +89,6 @@ with col_mod2:
 with st.expander("📤 Importar Despesas de Excel"):
     despesa_file = st.file_uploader("Upload do arquivo de despesas (.xlsx)", type=["xlsx"], key="upload_despesas")
 
-    # Só processa se o arquivo for novo e ainda não importado
     if despesa_file and not st.session_state.get("despesas_importadas_ok"):
         try:
             df_despesas = pd.read_excel(despesa_file)
@@ -97,7 +98,7 @@ with st.expander("📤 Importar Despesas de Excel"):
             else:
                 novas = df_despesas[["Despesa", "Valor", "Categoria"]].dropna().to_dict(orient="records")
                 st.session_state['despesas'].extend(novas)
-                st.session_state["despesas_importadas_ok"] = True  # Marca como já importado
+                st.session_state["despesas_importadas_ok"] = True
                 st.success(f"{len(novas)} despesas importadas com sucesso!")
                 st.rerun()
         except Exception as e:
@@ -110,7 +111,7 @@ with st.expander("📤 Importar Empréstimos de Excel"):
             df_emp = pd.read_excel(emprestimo_file)
             required_cols = {
                 "banco", "titular", "contrato", "data", "valor_total", "objeto",
-                "recursos", "encargos", "parcelas", "valor_parcela", "periodo"
+                "recursos", "encargos", "parcelas", "valor_parcela", "periodo", "ano_inicial", "ano_final"
             }
             if not required_cols.issubset(df_emp.columns):
                 st.error(f"Colunas obrigatórias: {required_cols}")
@@ -125,6 +126,11 @@ with st.expander("📤 Importar Empréstimos de Excel"):
                     primeira_parcela = datetime(data.year + 1, 5, 15)
                     ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (int(row["parcelas"]) - 1))
 
+                    # Validação: ano_final >= ano_inicial
+                    if anos.index(row["ano_final"]) < anos.index(row["ano_inicial"]):
+                        st.error(f"Erro na linha {i+1}: Ano Final deve ser maior ou igual ao Ano Inicial.")
+                        continue
+
                     novo_emp = {
                         "banco": row["banco"],
                         "titular": row["titular"],
@@ -137,7 +143,9 @@ with st.expander("📤 Importar Empréstimos de Excel"):
                         "parcelas": int(row["parcelas"]),
                         "valor_parcela": row["valor_parcela"],
                         "periodo": row["periodo"],
-                        "data_ultima_parcela": ultima_parcela.strftime("%d/%m/%Y")
+                        "data_ultima_parcela": ultima_parcela.strftime("%d/%m/%Y"),
+                        "ano_inicial": row["ano_inicial"],
+                        "ano_final": row["ano_final"]
                     }
 
                     emprestimos_importados.append(novo_emp)
@@ -196,14 +204,6 @@ with st.form("form_despesa", clear_on_submit=not is_editing):
 # --- EMPRÉSTIMOS ---
 st.markdown("### 🏦 Cadastro de Empréstimos e Financiamentos")
 
-def format_brl(valor):
-    return f"R$ {valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
-
-if "emprestimos" not in st.session_state:
-    st.session_state["emprestimos"] = []
-if "editing_loan_index" not in st.session_state:
-    st.session_state["editing_loan_index"] = None
-
 editing_loan = st.session_state["editing_loan_index"] is not None
 emprestimo_to_edit = st.session_state["emprestimos"][st.session_state["editing_loan_index"]] if editing_loan else {}
 
@@ -223,8 +223,8 @@ with st.form("form_emprestimo", clear_on_submit=not editing_loan):
 
     with col2:
         recursos = st.text_input("Recursos", value=emprestimo_to_edit.get("recursos", ""))
-        encargos = st.text_input("Encargos (% ao ano)",
-                                   value=emprestimo_to_edit.get("encargos", 0.0))
+        encargos = st.number_input("Encargos (% ao ano)", min_value=0.0, step=0.1,
+                                   value=float(emprestimo_to_edit.get("encargos", 0.0)))
         parcelas = st.number_input("Quantidade de Parcelas", min_value=1, step=1,
                                    value=emprestimo_to_edit.get("parcelas", 1))
         valor_parcela = st.number_input("Valor Parcela (R$)", min_value=0.0, step=100.0,
@@ -232,38 +232,48 @@ with st.form("form_emprestimo", clear_on_submit=not editing_loan):
         periodicidade = st.selectbox("Período de Pagamento", ["ANUAL", "SEMESTRAL", "MENSAL"],
                                      index=["ANUAL", "SEMESTRAL", "MENSAL"].index(
                                          emprestimo_to_edit.get("periodo", "ANUAL")))
+        ano_inicial = st.selectbox("Ano Inicial da Projeção", anos,
+                                   index=anos.index(emprestimo_to_edit.get("ano_inicial", "Ano 1")))
+        ano_final = st.selectbox("Ano Final da Projeção", anos,
+                                 index=anos.index(emprestimo_to_edit.get("ano_final", "Ano 5")))
 
         meses_intervalo = {"ANUAL": 12, "SEMESTRAL": 6, "MENSAL": 1}[periodicidade]
         primeira_parcela = datetime(data.year + 1, 5, 15)
         ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (parcelas - 1))
         data_final = st.date_input("Data da Última Parcela", format="DD/MM/YYYY",
-                                   value=pd.to_datetime(datetime.today() if not editing_loan else ultima_parcela))
+                                   value=pd.to_datetime(ultima_parcela))
 
-    enviar = st.form_submit_button("Atualizar" if editing_loan else "Cadastrar")
+    # Validação: ano_final >= ano_inicial
+    if anos.index(ano_final) < anos.index(ano_inicial):
+        st.error("Ano Final deve ser maior ou igual ao Ano Inicial.")
+    else:
+        enviar = st.form_submit_button("Atualizar" if editing_loan else "Cadastrar")
 
-    if enviar:
-        novo = {
-            "banco": banco,
-            "titular": titular,
-            "contrato": contrato,
-            "data": str(data),
-            "valor_total": valor_total,
-            "objeto": objeto,
-            "recursos": recursos,
-            "encargos": encargos,
-            "parcelas": parcelas,
-            "valor_parcela": valor_parcela,
-            "periodo": periodicidade,
-            "data_ultima_parcela": data_final.strftime("%d/%m/%Y")
-        }
+        if enviar:
+            novo = {
+                "banco": banco,
+                "titular": titular,
+                "contrato": contrato,
+                "data": str(data),
+                "valor_total": valor_total,
+                "objeto": objeto,
+                "recursos": recursos,
+                "encargos": encargos,
+                "parcelas": parcelas,
+                "valor_parcela": valor_parcela,
+                "periodo": periodicidade,
+                "data_ultima_parcela": data_final.strftime("%d/%m/%Y"),
+                "ano_inicial": ano_inicial,
+                "ano_final": ano_final
+            }
 
-        if editing_loan:
-            st.session_state["emprestimos"][st.session_state["editing_loan_index"]] = novo
-            st.session_state["editing_loan_index"] = None
-        else:
-            st.session_state["emprestimos"].append(novo)
-        st.success("Empréstimo salvo com sucesso!")
-        st.rerun()
+            if editing_loan:
+                st.session_state["emprestimos"][st.session_state["editing_loan_index"]] = novo
+                st.session_state["editing_loan_index"] = None
+            else:
+                st.session_state["emprestimos"].append(novo)
+            st.success("Empréstimo salvo com sucesso!")
+            st.rerun()
 
 # --- EXIBIÇÃO DE DESPESAS ---
 st.markdown("### Despesas Cadastradas")
@@ -295,7 +305,7 @@ with st.expander("Empréstimos"):
             cols[1].write(e["titular"])
             cols[2].write(e["objeto"])
             cols[3].write(format_brl(e["valor_total"]))
-            cols[4].write(e.get("data_ultima_parcela", "Não informado"))
+            cols[4].write(f"{e.get('ano_inicial', 'N/A')} a {e.get('ano_final', 'N/A')}")
             if cols[5].button("Editar", key=f"edit_loan_{i}"):
                 st.session_state["editing_loan_index"] = i
                 st.rerun()
@@ -313,7 +323,6 @@ tem_emprestimos = st.session_state.get('emprestimos') and isinstance(st.session_
 if not tem_despesas and not tem_emprestimos:
     st.info("Adicione despesas ou empréstimos para ver a projeção.")
 else:
-    # Inicializa df_fluxo com colunas dos anos, mesmo se vazio
     df_fluxo = pd.DataFrame(columns=anos)
 
     if tem_despesas:
@@ -332,8 +341,11 @@ else:
             linha = f"Empréstimo: {emp['objeto']}"
             if linha not in df_fluxo.index:
                 df_fluxo.loc[linha] = [0] * len(anos)
-            for i in range(min(emp["parcelas"], len(anos))):
-                ano = f"Ano {i+1}"
+            start_year_index = anos.index(emp["ano_inicial"])
+            end_year_index = anos.index(emp["ano_final"])
+            num_years = end_year_index - start_year_index + 1
+            for i in range(start_year_index, min(start_year_index + min(emp["parcelas"], num_years), len(anos))):
+                ano = anos[i]
                 df_fluxo.at[linha, ano] += emp["valor_parcela"]
 
     df_fluxo.index.name = "Despesa"
@@ -342,8 +354,13 @@ else:
 
 # --- LIMPAR TUDO ---
 if st.button("Limpar Tudo", key="btn_clear_all"):
-    keys_to_clear = list(st.session_state.keys())
-    for key in keys_to_clear:
-        del st.session_state[key]
-    st.success("Todos os dados e uploads foram limpos!")
-    st.rerun()
+    if st.checkbox("Confirmar exclusão de todos os dados"):
+        keys_to_clear = list(st.session_state.keys())
+        for key in keys_to_clear:
+            del st.session_state[key]
+        st.session_state["despesas_importadas_ok"] = False
+        st.session_state["emprestimos_importados_ok"] = False
+        st.success("Todos os dados e uploads foram limpos!")
+        st.rerun()
+    else:
+        st.warning("Marque a caixa de confirmação para limpar os dados.")

@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 from io import BytesIO
 
-
 st.set_page_config(layout="wide", page_title="Fluxo de Caixa Projeção")
 st.title("🎯 Fluxo de Caixa - Cenários (Projetado, Pessimista, Otimista)")
 
@@ -130,7 +129,6 @@ def format_brl(x):
         return x
 
 # === ESTILIZAÇÃO DAS TABELAS ===
-
 def aplicar_estilo_fluxo(linha):
     if linha.name == "Receita Estimada":
         return ["background-color: #003366; color: white;" for _ in linha]
@@ -184,9 +182,6 @@ for aba, nome in zip(abas, nomes_cenarios):
             lo * 0.15 if lo > 0 else 0 for lo in lucro_operacional
         ]
 
-        # REMOVE linhas que começam com "Empréstimo:"
-        #df_fluxo = df_fluxo[~df_fluxo.index.str.startswith("Empréstimo:")]
-
         # === DRE ===
         st.subheader(f"📘 DRE - Cenário {nome}")
 
@@ -217,7 +212,10 @@ for aba, nome in zip(abas, nomes_cenarios):
 
         if "emprestimos" in st.session_state:
             for emp in st.session_state["emprestimos"]:
-                for i in range(min(emp["parcelas"], 5)):
+                start_year_index = anos.index(emp["ano_inicial"])
+                end_year_index = anos.index(emp["ano_final"])
+                num_years = end_year_index - start_year_index + 1
+                for i in range(start_year_index, min(start_year_index + min(emp["parcelas"], num_years), len(anos))):
                     extra_operacional[i] += emp["valor_parcela"] * (
                         1 + (pess_despesas if nome == "Pessimista" else (-otm_despesas if nome == "Otimista" else 0)) / 100
                     )
@@ -299,18 +297,17 @@ for aba, nome in zip(abas, nomes_cenarios):
                 .set_table_styles(style_idx_dre, overwrite=False),
             height=458
         )
-        
+
         # 🔄 Adiciona os empréstimos ao df_despesas_info com Categoria 'Extra Operacional'
         emprestimos_detalhados = []
         if "emprestimos" in st.session_state:
             for i, emp in enumerate(st.session_state["emprestimos"], start=1):
-                descricao = emp.get("descricao", f"Empréstimo {i}").strip() or f"Empréstimo {i}"
-                total = emp["valor_parcela"] * emp["parcelas"]
+                descricao = emp.get("objeto", f"Empréstimo {i}").strip() or f"Empréstimo {i}"
+                total = emp["valor_parcela"] * min(emp["parcelas"], anos.index(emp["ano_final"]) - anos.index(emp["ano_inicial"]) + 1)
                 emprestimos_detalhados.append({
-                    "Descrição": descricao,
+                    "Descrição": f"{descricao} ({emp['ano_inicial']} a {emp['ano_final']})",
                     "Valor": total,
                     "Categoria": "Extra Operacional"
                 })
 
         gerar_excel_download(df_fluxo, df_dre, nome)
-
