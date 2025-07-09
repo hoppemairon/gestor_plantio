@@ -416,23 +416,34 @@ for cenario in nomes_cenarios:
 
 # Gráficos Avançados
 st.markdown("### 📈 Visualizações")
+
+
+st.subheader("Receita vs. Lucro Líquido")
+fig1 = go.Figure()
+for cenario in nomes_cenarios:
+    fig1.add_trace(go.Bar(
+        x=anos, y=receitas[cenario], name=f"Receita ({cenario})",
+        marker_color="#1f77b4" if cenario == "Projetado" else "#ff7f0e" if cenario == "Pessimista" else "#2ca02c"
+    ))
+    fig1.add_trace(go.Bar(
+        x=anos, y=dre_por_cenario[cenario]["Lucro Líquido"], name=f"Lucro Líquido ({cenario})",
+        marker_color="#aec7e8" if cenario == "Projetado" else "#ffbb78" if cenario == "Pessimista" else "#98df8a"
+    ))
+    
+fig1.update_layout(barmode="group", title="Comparação de Receita e Lucro Líquido", yaxis_title="R$", template="plotly_white")
+st.plotly_chart(fig1, use_container_width=True)
+
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Receita vs. Lucro Líquido")
-    fig1 = go.Figure()
-    for cenario in nomes_cenarios:
-        fig1.add_trace(go.Bar(
-            x=anos, y=receitas[cenario], name=f"Receita ({cenario})",
-            marker_color="#1f77b4" if cenario == "Projetado" else "#ff7f0e" if cenario == "Pessimista" else "#2ca02c"
-        ))
-        fig1.add_trace(go.Bar(
-            x=anos, y=dre_por_cenario[cenario]["Lucro Líquido"], name=f"Lucro Líquido ({cenario})",
-            marker_color="#aec7e8" if cenario == "Projetado" else "#ffbb78" if cenario == "Pessimista" else "#98df8a"
-        ))
-        
-    fig1.update_layout(barmode="group", title="Comparação de Receita e Lucro Líquido", yaxis_title="R$", template="plotly_white")
-    st.plotly_chart(fig1, use_container_width=True)
+    st.subheader("Distribuição de Despesas (Cenário Projetado)")
+    despesas_categorias = pd.DataFrame(st.session_state.get("despesas", [])).groupby("Categoria")["Valor"].sum()
+    if not despesas_categorias.empty:
+        fig4 = px.pie(values=despesas_categorias.values, names=despesas_categorias.index, title="Distribuição de Despesas por Categoria")
+        fig4.update_layout(template="plotly_white")
+        st.plotly_chart(fig4, use_container_width=True)
+    else:
+        st.warning("Nenhuma despesa cadastrada para exibir a distribuição.")
 
 with col2:
     st.subheader("Margem Líquida vs. Custo por Receita")
@@ -463,14 +474,7 @@ for cenario in nomes_cenarios:
 fig3.update_layout(barmode="group", title="Produtividade por Hectare vs. Break-Even Yield", yaxis_title="R$/ha e Sacas/ha", template="plotly_white")
 st.plotly_chart(fig3, use_container_width=True)
 
-st.subheader("Distribuição de Despesas (Cenário Projetado)")
-despesas_categorias = pd.DataFrame(st.session_state.get("despesas", [])).groupby("Categoria")["Valor"].sum()
-if not despesas_categorias.empty:
-    fig4 = px.pie(values=despesas_categorias.values, names=despesas_categorias.index, title="Distribuição de Despesas por Categoria")
-    fig4.update_layout(template="plotly_white")
-    st.plotly_chart(fig4, use_container_width=True)
-else:
-    st.warning("Nenhuma despesa cadastrada para exibir a distribuição.")
+
 
 # Parecer Financeiro
 st.markdown("### 📝 Parecer Financeiro")
