@@ -349,6 +349,15 @@ else:
     st.dataframe(df_fluxo.style.format(format_brl))
     st.session_state['fluxo_caixa'] = df_fluxo
 
+
+totais_por_ano = df_fluxo.sum(axis=0)
+
+st.markdown("#### 💵 Total de Despesas por Ano (Projetado com Inflação)")
+cols_totais = st.columns(len(anos))
+for i, ano in enumerate(anos):
+    with cols_totais[i]:
+        st.metric(ano, format_brl(totais_por_ano[ano]))
+
 # --- LIMPAR TUDO ---
 if st.button("Limpar Tudo", key="btn_clear_all"):
     if st.checkbox("Confirmar exclusão de todos os dados"):

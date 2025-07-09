@@ -175,13 +175,13 @@ def aplicar_estilo_dre(linha):
 def aplicar_estilo_retorno(linha):
     return ["background-color: #FF4040; color: white;" if x <= 0 else "" for x in linha]
 
-def gerar_excel_download(df_fluxo, df_dre, df_retorno, nome_cenario):
+def gerar_excel_download(df_fluxo, df_dre, df_retorno, resumo, nome_cenario):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Formatar Fluxo de Caixa e DRE com formato de moeda
         df_fluxo.to_excel(writer, sheet_name="Fluxo de Caixa")
         df_dre.to_excel(writer, sheet_name="DRE")
-        # Formatar Retorno por Real Gasto como moeda
+        resumo.to_excel(writer, sheet_name="Resumo Financeiro")
+
         workbook = writer.book
         worksheet = writer.sheets["Retorno por Real Gasto"] = workbook.add_worksheet("Retorno por Real Gasto")
         currency_format = workbook.add_format({'num_format': 'R$ #,##0.00'})
@@ -192,14 +192,14 @@ def gerar_excel_download(df_fluxo, df_dre, df_retorno, nome_cenario):
         for row_num, row_data in enumerate(df_retorno.values):
             for col_num, value in enumerate(row_data):
                 worksheet.write(row_num + 1, col_num + 1, value, currency_format)
-        writer.close()
-    output.seek(0)
 
+    output.seek(0)
     st.download_button(
-        label=f"⬇️ Baixar Excel - {nome_cenario}",
-        data=output,
-        file_name=f"cenario_{nome_cenario.lower()}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    label=f"⬇️ Baixar Excel - {nome_cenario}",
+    data=output,
+    file_name=f"cenario_{nome_cenario.lower()}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    key=f"download_excel_{nome_cenario.lower()}"
     )
 
 for aba, nome in zip(abas, nomes_cenarios):
@@ -378,5 +378,20 @@ for aba, nome in zip(abas, nomes_cenarios):
                     "Valor": total,
                     "Categoria": "Extra Operacional"
                 })
+        
+        # === RESUMO SIMPLIFICADO ===
+        st.subheader(f"📌 Resumo Financeiro Anual - Cenário {nome}")
 
-        gerar_excel_download(df_fluxo, df_dre, df_retorno, nome)
+        resumo = pd.DataFrame({
+            "Receita": df_dre.loc["Receita"],
+            "Despesas Totais": despesas_totais,
+            "Lucro Líquido": df_dre.loc["Lucro Líquido"]
+        })
+
+        # Formatação e exibição
+        st.dataframe(
+            resumo.style.format(format_brl),
+            use_container_width=True
+        )
+
+        gerar_excel_download(df_fluxo, df_dre, df_retorno, resumo, nome)
