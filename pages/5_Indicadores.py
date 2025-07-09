@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from io import BytesIO
+from fpdf import FPDF
 import datetime
 
 from utils.session import carregar_configuracoes
