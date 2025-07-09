@@ -29,18 +29,15 @@ if "editing_loan_index" not in st.session_state:
     st.session_state["editing_loan_index"] = None
 
 # --- INFLAÇÃO ---
-st.markdown("### 📈 Taxas de Inflação Anual")
-col1, col2 = st.columns(2)
+st.markdown("### 📈 Inflação Estimada por Ano")
+cols = st.columns(5)
 inflacoes = []
-for i, ano in enumerate(anos):
-    with (col1 if i % 2 == 0 else col2):
-        valor = st.number_input(
-            f"Inflação estimada para {ano} (%)",
-            min_value=0.0,
-            value=st.session_state.get(f"inf_{i}", inflacao_padrao * 100),
-            key=f"inf_{i}"
-        )
-        inflacoes.append(valor)
+
+for i, col in enumerate(cols):
+    valor = st.session_state.get(f"inf_{i}", inflacao_padrao * 100)
+    inflacoes.append(valor)
+    with col:
+        st.metric(f"Ano {i+1}", f"{valor:.2f}%")
 
 # --- MODELOS DE EXCEL ---
 st.markdown("### 📥 Modelos de Excel para Preenchimento")
@@ -364,3 +361,4 @@ if st.button("Limpar Tudo", key="btn_clear_all"):
         st.rerun()
     else:
         st.warning("Marque a caixa de confirmação para limpar os dados.")
+

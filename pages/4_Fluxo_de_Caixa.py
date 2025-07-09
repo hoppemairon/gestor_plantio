@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from io import BytesIO
 
+from utils.session import carregar_configuracoes
+carregar_configuracoes()
+
 st.set_page_config(layout="wide", page_title="Fluxo de Caixa Projeção")
 st.title("🎯 Fluxo de Caixa - Cenários (Projetado, Pessimista, Otimista)")
 
@@ -16,21 +19,42 @@ if "fluxo_caixa" not in st.session_state:
     st.warning("Você precisa preencher as despesas antes de acessar esta página.")
     st.stop()
 
+inflacao_padrao = 0.04
 anos = [f"Ano {i+1}" for i in range(5)]
 inflacoes = [st.session_state.get(f"inf_{i}", 4.0) for i in range(5)]
 plantios = st.session_state["plantios"]
 df_base_fluxo = st.session_state["fluxo_caixa"]
 
-# Entradas do usuário para cenários
-st.markdown("### 🔧 Ajustes de Cenário")
 
-col1, col2 = st.columns(2)
-with col1:
-    pess_receita = st.slider("Pessimista: Receita - redução (%)", 0, 50, 15)
-    pess_despesas = st.slider("Pessimista: Despesas - aumento (%)", 0, 50, 10)
-with col2:
-    otm_receita = st.slider("Otimista: Receita - aumento (%)", 0, 50, 10)
-    otm_despesas = st.slider("Otimista: Despesas - redução (%)", 0, 50, 10)
+
+with st.expander("🔧 Cenário e Inflação"):
+    # --- INFLAÇÃO ---
+    st.markdown("### 📈 Inflação Estimada por Ano")
+    cols = st.columns(5)
+    inflacoes = []
+
+    for i, col in enumerate(cols):
+        valor = st.session_state.get(f"inf_{i}", inflacao_padrao * 100)
+        inflacoes.append(valor)
+        with col:
+            st.metric(f"Ano {i+1}", f"{valor:.2f}%")
+
+    # Recupera os valores dos cenários da session_state
+    pess_receita = st.session_state["pess_receita"]
+    pess_despesas = st.session_state["pess_despesas"]
+    otm_receita = st.session_state["otm_receita"]
+    otm_despesas = st.session_state["otm_despesas"]
+
+    st.markdown("### 🔧 Parâmetros de Cenário Atuais")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("💸 Receita Pessimista", f"-{st.session_state.get('pess_receita', 15)}%")
+    with col2:    
+        st.metric("💰 Despesa Pessimista", f"+{st.session_state.get('pess_despesas', 10)}%")
+    with col3:
+        st.metric("💸 Receita Otimista", f"+{st.session_state.get('otm_receita', 10)}%")
+    with col4:
+        st.metric("💰 Despesa Otimista", f"-{st.session_state.get('otm_despesas', 10)}%")
 
 # === CÁLCULO DA RECEITA ESTIMADA BASE ===
 total_sacas = preco_total = hectares_total = 0
@@ -76,44 +100,47 @@ fluxos = {
     "Otimista": ajustar_despesas(df_base_fluxo, -otm_despesas)
 }
 
-# 1. Explicação do Cálculo das Receitas Futuras
-with st.expander("🧾 Entenda como a receita futura é calculada por cultura"):
-    st.markdown("""
-    Para projetar as receitas futuras, consideramos a contribuição individual de cada cultura plantada e aplicamos a taxa de inflação anual.
+col1, col2 = st.columns(2)
 
-    **Passos do Cálculo:**
+with col1:
+    with st.expander("🧾 Entenda como a receita futura é calculada por cultura"):
+        st.markdown("""
+        Para projetar as receitas futuras, consideramos a contribuição individual de cada cultura plantada e aplicamos a taxa de inflação anual.
 
-    1.  **Receita Base por Cultura:** Para cada tipo de plantio que você cadastrou (ex: Milho, Soja), calculamos a receita esperada no ano base (sem inflação) multiplicando:
-        *   `Hectares Plantados` (para aquela cultura)
-        *   `Sacas por Hectare` (produtividade esperada para aquela cultura)
-        *   `Preço por Saca` (preço de venda esperado para aquela cultura)
+        **Passos do Cálculo:**
 
-        Isso nos dá a **receita bruta inicial** que cada cultura contribui.
+        1.  **Receita Base por Cultura:** Para cada tipo de plantio que você cadastrou (ex: Milho, Soja), calculamos a receita esperada no ano base (sem inflação) multiplicando:
+            *   `Hectares Plantados` (para aquela cultura)
+            *   `Sacas por Hectare` (produtividade esperada para aquela cultura)
+            *   `Preço por Saca` (preço de venda esperado para aquela cultura)
 
-    2.  **Projeção com Inflação:** A receita base de cada cultura é então projetada para os próximos 5 anos. Para cada ano, aplicamos a taxa de inflação acumulada. Isso significa que a receita do Ano 2 considera a inflação do Ano 1 e do Ano 2, e assim por diante.
+            Isso nos dá a **receita bruta inicial** que cada cultura contribui.
 
-        *   **Exemplo (Ano 1):** `Receita Base da Cultura X * (1 + Inflação Ano 1)`
-        *   **Exemplo (Ano 2):** `Receita Base da Cultura X * (1 + Inflação Ano 1) * (1 + Inflação Ano 2)`
+        2.  **Projeção com Inflação:** A receita base de cada cultura é então projetada para os próximos 5 anos. Para cada ano, aplicamos a taxa de inflação acumulada. Isso significa que a receita do Ano 2 considera a inflação do Ano 1 e do Ano 2, e assim por diante.
 
-    3.  **Receita Total Estimada:** A "Receita Estimada" que você vê no Fluxo de Caixa Consolidado é a **soma das receitas projetadas de todas as suas culturas** para cada ano. Isso garante uma visão abrangente do seu faturamento futuro.
-    """)
+            *   **Exemplo (Ano 1):** `Receita Base da Cultura X * (1 + Inflação Ano 1)`
+            *   **Exemplo (Ano 2):** `Receita Base da Cultura X * (1 + Inflação Ano 1) * (1 + Inflação Ano 2)`
 
-# ==== 📘 Explicação dos Impostos ====
-with st.expander("🧾 Entenda os impostos aplicados no DRE e Fluxo de Caixa"):
-    st.markdown("""
-    O sistema aplica os principais impostos com base na **receita estimada** e no **lucro operacional**, simulando uma empresa agropecuária no regime presumido.
+        3.  **Receita Total Estimada:** A "Receita Estimada" que você vê no Fluxo de Caixa Consolidado é a **soma das receitas projetadas de todas as suas culturas** para cada ano. Isso garante uma visão abrangente do seu faturamento futuro.
+        """)
 
-    **1. Impostos sobre Venda (4,85%)**
-    - **FUNRURAL (1,2%)**: contribuição previdenciária sobre a receita bruta da comercialização.
-    - **PIS/COFINS (3,65%)**: contribuições sociais sobre faturamento, comuns no agronegócio.
+with col2:
+    with st.expander("🧾 Entenda os impostos aplicados no DRE e Fluxo de Caixa"):
+        st.markdown("""
+        O sistema aplica os principais impostos com base na **receita estimada** e no **lucro operacional**, simulando uma empresa agropecuária no regime presumido.
 
-    Esses impostos incidem diretamente sobre a **Receita Estimada** e são somados como "Impostos Sobre Venda".
+        **1. Impostos sobre Venda (4,85%)**
+        - **FUNRURAL (1,2%)**: contribuição previdenciária sobre a receita bruta da comercialização.
+        - **PIS/COFINS (3,65%)**: contribuições sociais sobre faturamento, comuns no agronegócio.
 
-    **2. Impostos sobre Resultado (15%)**
-    - Refere-se a uma estimativa de **IRPJ + CSLL**, aplicada **somente sobre o Lucro Operacional**, se positivo.
+        Esses impostos incidem diretamente sobre a **Receita Estimada** e são somados como "Impostos Sobre Venda".
 
-    > 💡 Estes valores são simulações aproximadas, ideais para análise financeira e não substituem a apuração contábil real.
-    """)
+        **2. Impostos sobre Resultado (15%)**
+        - Refere-se a uma estimativa de **IRPJ + CSLL**, aplicada **somente sobre o Lucro Operacional**, se positivo.
+
+        > 💡 Estes valores são simulações aproximadas, ideais para análise financeira e não substituem a apuração contábil real.
+        """)
+
 
 # === EXIBIÇÃO COMPARATIVA DE CENÁRIOS ===
 st.markdown("### 📊 Análise de Cenários (Projetado, Pessimista, Otimista)")

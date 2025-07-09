@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from io import BytesIO
 
+from utils.session import carregar_configuracoes
+carregar_configuracoes()
+
 st.set_page_config(layout="wide", page_title="Indicadores Financeiros")
 st.title("📈 Indicadores Financeiros e Análise")
 
@@ -58,15 +61,40 @@ if "plantios" not in st.session_state or not st.session_state["plantios"]:
     st.warning("Nenhum plantio cadastrado. Cadastre ao menos um plantio para gerar os indicadores.")
     st.stop()
 
+inflacao_padrao = 0.04
 anos = [f"Ano {i+1}" for i in range(5)]
 inflacoes = [st.session_state.get(f"inf_{i}", 4.0) for i in range(5)]
 nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
 
-# Ajustes de cenários (valores padrão se não estiverem no session_state)
-pess_receita = st.session_state.get("pess_receita", 15)
-pess_despesas = st.session_state.get("pess_despesas", 10)
-otm_receita = st.session_state.get("otm_receita", 10)
-otm_despesas = st.session_state.get("otm_despesas", 10)
+with st.expander("🔧 Cenário e Inflação"):
+    # --- INFLAÇÃO ---
+    st.markdown("### 📈 Inflação Estimada por Ano")
+    cols = st.columns(5)
+    inflacoes = []
+
+    for i, col in enumerate(cols):
+        valor = st.session_state.get(f"inf_{i}", inflacao_padrao * 100)
+        inflacoes.append(valor)
+        with col:
+            st.metric(f"Ano {i+1}", f"{valor:.2f}%")
+
+    # Ajustes de cenários (valores padrão se não estiverem no session_state)
+    pess_receita = st.session_state.get("pess_receita", 15)
+    pess_despesas = st.session_state.get("pess_despesas", 10)
+    otm_receita = st.session_state.get("otm_receita", 10)
+    otm_despesas = st.session_state.get("otm_despesas", 10)
+
+    st.markdown("### 🔧 Parâmetros de Cenário Atuais")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("💸 Receita Pessimista", f"-{st.session_state.get('pess_receita', 15)}%")
+    with col2:    
+        st.metric("💰 Despesa Pessimista", f"+{st.session_state.get('pess_despesas', 10)}%")
+    with col3:
+        st.metric("💸 Receita Otimista", f"+{st.session_state.get('otm_receita', 10)}%")
+    with col4:
+        st.metric("💰 Despesa Otimista", f"-{st.session_state.get('otm_despesas', 10)}%")
+
 
 # Função para formatar valores em BRL
 def format_brl(x):
@@ -214,28 +242,20 @@ for cenario in nomes_cenarios:
 st.markdown("### 📊 Indicadores Financeiros")
 for cenario in nomes_cenarios:
     st.subheader(f"Cenário {cenario}")
-    # Criar DataFrame de indicadores, excluindo CAGRs para exibição anual
+    # Criar DataFrame de indicadores, excluindo CAGRs
     df_indicadores = pd.DataFrame({
         k: v for k, v in indicadores[cenario].items()
         if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
     }, index=anos)
-    # Adicionar CAGRs como uma linha separada
-    df_cagr = pd.DataFrame({
-        "CAGR Receita (%)": [indicadores[cenario]["CAGR Receita (%)"]],
-        "CAGR Lucro Líquido (%)": [indicadores[cenario]["CAGR Lucro Líquido (%)"]]
-    }, index=["CAGR"])
-    # Concatenar DataFrames
-    df_display = pd.concat([df_indicadores, df_cagr])
-    # Estilizar e formatar
-    styled_df = df_display.style.format({
+
+    styled_df = df_indicadores.style.format({
         "Margem Líquida (%)": "{:.2f}%",
         "Retorno por Real Gasto": "{:.2f}",
         "Liquidez Operacional": "{:.2f}",
-        "Endividamento (%)": "{:.2f}%",
-        "CAGR Receita (%)": "{:.2f}%",
-        "CAGR Lucro Líquido (%)": "{:.2f}%"
+        "Endividamento (%)": "{:.2f}%"
     })
-    # Usar CSS para esconder o índice
+
+    # Esconde o índice
     st.markdown(
         """
         <style>
@@ -250,6 +270,16 @@ for cenario in nomes_cenarios:
         unsafe_allow_html=True
     )
     st.dataframe(styled_df, use_container_width=True)
+
+    # Exibir CAGRs separadamente
+    cagr_receita = indicadores[cenario]["CAGR Receita (%)"]
+    cagr_lucro = indicadores[cenario]["CAGR Lucro Líquido (%)"]
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("📈 CAGR Receita (5 anos)", f"{cagr_receita:.2f}%")
+    with col_b:
+        st.metric("📈 CAGR Lucro Líquido (5 anos)", f"{cagr_lucro:.2f}%")
 
 # Gráficos
 st.markdown("### 📈 Visualizações")

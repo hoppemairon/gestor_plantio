@@ -41,9 +41,9 @@ st.markdown("### Adicionar Novo Plantio")
 with st.form("form_plantio"):
     ano = st.number_input("Ano do plantio", min_value=2000, max_value=2100, step=1, value=2025)
     cultura = st.selectbox("Tipo de cultura", ["Soja", "Arroz", "Trigo", "Outros"])
-    hectares = st.number_input("Área plantada (hectares)", min_value=0.1, step=0.1)
-    sacas_por_hectare = st.number_input("Produtividade (sacas/ha)", min_value=1.0, step=1.0)
-    preco_saca = st.number_input("Valor da saca (R$)", min_value=0.5, step=0.5)
+    hectares = st.number_input("Área plantada (hectares)", min_value=0.1, step=0.1, value=1200.0)
+    sacas_por_hectare = st.number_input("Produtividade (sacas/ha)", min_value=1.0, step=1.0, value=40.0)
+    preco_saca = st.number_input("Valor da saca (R$)", min_value=0.5, step=0.5, value=120.0)
     submitted = st.form_submit_button("Cadastrar Plantio")
 
     if submitted:
