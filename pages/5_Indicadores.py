@@ -268,7 +268,7 @@ st.dataframe(
 
 # Função para calcular CAGR
 def calcular_cagr(valor_inicial, valor_final, periodos):
-    if valor_inicial == 0 or valor_final <= 0 or periodos <= 0:
+    if valor_inicial <= 0 or valor_final <= 0 or periodos <= 0:
         return 0
     return ((valor_final / valor_inicial) ** (1 / periodos) - 1) * 100
 
@@ -478,7 +478,8 @@ for cenario in nomes_cenarios:
     st.subheader(f"Parecer - Cenário {cenario}")
     margem_media = np.mean(indicadores[cenario]["Margem Líquida (%)"])
     retorno_medio = np.mean(indicadores[cenario]["Retorno por Real Gasto"])
-    liquidez_media = np.mean(indicadores[cenario]["Liquidez Operacional"])
+    liquidez_lista = indicadores[cenario].get("Liquidez Operacional", [0]*5)
+    liquidez_media = np.mean(liquidez_lista)
     endividamento_medio = np.mean(indicadores[cenario]["Endividamento (%)"])
     produtividade_media = np.mean(indicadores[cenario]["Produtividade por Hectare (R$/ha)"])
     custo_receita_media = np.mean(indicadores[cenario]["Custo por Receita (%)"])
