@@ -46,7 +46,7 @@ with st.expander("🧾 Entenda os Indicadores Financeiros"):
     **6. CAGR Lucro Líquido (%)**
     - **O que é?** Taxa de Crescimento Anual Composta do lucro líquido ao longo de 5 anos.
     - **Por que é importante?** Reflete a sustentabilidade do lucro. No agronegócio, é afetado por preços de mercado, custos e condições climáticas.
-    - **Exemplo:** Se o lucro líquido inicial é R$ 20.000 e, após 5 anos, é R$ 30.000, o CAGR é cerca de 8,4% ao ano.
+    - **Exemplo:** Se o lucro líquido inicial é R\$ 20.000 e, após 5 anos, é R$ 30.000, o CAGR é cerca de 8,4% ao ano.
     - **Interpretação:** Valores negativos indicam queda no lucro, exigindo revisão de custos ou estratégias de venda.
     """)
 
