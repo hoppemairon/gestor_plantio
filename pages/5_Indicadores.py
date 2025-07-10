@@ -262,7 +262,8 @@ st.dataframe(
         "Receita por ha": format_brl,
         "Custo por ha": format_brl
     }),
-    use_container_width=True
+    use_container_width=True,
+    hide_index=True
 )
 
 # Função para calcular CAGR
