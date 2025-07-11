@@ -11,7 +11,6 @@ carregar_configuracoes()
 st.set_page_config(layout="wide", page_title="Indicadores Financeiros")
 st.title("📈 Indicadores Financeiros e Análise - Agronegócio")
 
-# Explicações dos Indicadores
 with st.expander("🧾 Entenda os Indicadores Financeiros"):
     st.markdown("""
     Abaixo, apresentamos indicadores financeiros avançados, adaptados ao contexto do agronegócio, com explicações sobre sua importância e interpretação:
@@ -83,7 +82,6 @@ with st.expander("🧾 Entenda os Indicadores Financeiros"):
     - **Interpretação:** Valores negativos requerem revisão de custos ou estratégias.
     """)
 
-# Verificação de dados essenciais
 if "fluxo_caixa" not in st.session_state:
     st.warning("Dados do fluxo de caixa não foram encontrados. Preencha as informações na página de Fluxo de Caixa.")
     st.stop()
@@ -119,8 +117,8 @@ with st.expander("🔧 Cenário e Inflação"):
     with col4:
         st.metric("💰 Despesa Otimista", f"-{otm_despesas}%")
 
-# === RECEITA POR CULTURA ===
-st.markdown("### 🌱 Receita por Cultura Agrícola (Ano Base)")
+# === RECEITA POR CULTURA E RECEITAS EXTRAS ===
+st.markdown("### 🌱 Receita por Cultura Agrícola e Receitas Extras (Ano Base)")
 culturas = {}
 for p in st.session_state["plantios"].values():
     cultura = p["cultura"]
@@ -129,6 +127,14 @@ for p in st.session_state["plantios"].values():
         culturas[cultura] = {"receita": 0, "hectares": 0}
     culturas[cultura]["receita"] += receita
     culturas[cultura]["hectares"] += p["hectares"]
+
+# Adicionar receitas extras à tabela
+receitas_extras = {"Operacional": 0, "Extra Operacional": 0}
+if "receitas_adicionais" in st.session_state:
+    for receita in st.session_state["receitas_adicionais"].values():
+        valor = receita["valor"]
+        categoria = receita["categoria"]
+        receitas_extras[categoria] += valor * len(receita["anos_aplicacao"])
 
 # Calcular receitas base e despesas para custo por hectare
 total_sacas = preco_total = hectares_total = 0
@@ -146,10 +152,25 @@ if hectares_total == 0 or total_sacas == 0:
 
 media_receita_hectare = (preco_total / total_sacas) * (total_sacas / hectares_total) if total_sacas > 0 else 0
 receita_base = [hectares_total * media_receita_hectare * np.prod([1 + inflacoes[j] for j in range(i + 1)]) for i in range(5)]
+
+# Adicionar receitas extras com e sem inflação
+receitas_extras_projetadas = {"Operacional": [0] * 5, "Extra Operacional": [0] * 5}
+if "receitas_adicionais" in st.session_state:
+    for receita in st.session_state["receitas_adicionais"].values():
+        valor = receita["valor"]
+        categoria = receita["categoria"]
+        for ano in receita["anos_aplicacao"]:
+            idx = anos.index(ano)
+            if categoria == "Operacional":
+                fator = np.prod([1 + inflacoes[j] for j in range(idx + 1)])
+                receitas_extras_projetadas["Operacional"][idx] += valor * fator
+            else:
+                receitas_extras_projetadas["Extra Operacional"][idx] += valor
+
 receitas = {
-    "Projetado": receita_base,
-    "Pessimista": [r * (1 - pess_receita / 100) for r in receita_base],
-    "Otimista": [r * (1 + otm_receita / 100) for r in receita_base]
+    "Projetado": [receita_base[i] + receitas_extras_projetadas["Operacional"][i] + receitas_extras_projetadas["Extra Operacional"][i] for i in range(5)],
+    "Pessimista": [(receita_base[i] + receitas_extras_projetadas["Operacional"][i]) * (1 - pess_receita / 100) + receitas_extras_projetadas["Extra Operacional"][i] for i in range(5)],
+    "Otimista": [(receita_base[i] + receitas_extras_projetadas["Operacional"][i]) * (1 + otm_receita / 100) + receitas_extras_projetadas["Extra Operacional"][i] for i in range(5)]
 }
 
 # Calcular custo por hectare usando o cenário Projetado
@@ -176,7 +197,6 @@ for cenario in nomes_cenarios:
     df_fluxo.loc["Receita Estimada"] = receitas[cenario]
     df_fluxo.loc["Impostos Sobre Venda"] = df_fluxo.loc["Receita Estimada"] * 0.0485
 
-    # Recalcular DRE
     df_despesas_info = pd.DataFrame(st.session_state.get("despesas", []))
     if not df_despesas_info.empty and "Categoria" in df_despesas_info.columns:
         df_despesas_info["Categoria"] = df_despesas_info["Categoria"].astype(str).str.strip()
@@ -203,9 +223,11 @@ for cenario in nomes_cenarios:
                 start_year_index = anos.index(emp["ano_inicial"])
                 end_year_index = anos.index(emp["ano_final"])
                 num_years = end_year_index - start_year_index + 1
-                ajuste = pess_despesas if cenario == "Pessimista" else (-otm_despesas if cenario == "Otimista" else 0)
-                for i in range(start_year_index, min(start_year_index + min(emp["parcelas"], num_years), len(anos))):
-                    extra_operacional[i] += emp["valor_parcela"] * (1 + ajuste / 100)
+                ajuste = (pess_despesas if cenario == "Pessimista" else (-otm_despesas if cenario == "Otimista" else 0)) / 100
+                parcelas_por_ano = emp["parcelas"] / num_years if num_years > 0 else emp["parcelas"]
+                for i in range(start_year_index, min(end_year_index + 1, len(anos))):
+                    if i < start_year_index + emp["parcelas"]:
+                        extra_operacional[i] += emp["valor_parcela"] * (1 + ajuste)
             except ValueError:
                 continue
 
@@ -227,14 +249,14 @@ for cenario in nomes_cenarios:
         dre_calc["Lucro Operacional"][i] * 0.15 if dre_calc["Lucro Operacional"][i] > 0 else 0
         for i in range(5)
     ]
+    dre_calc["Receita Extra Operacional"] = receitas_extras_projetadas["Extra Operacional"]
     dre_calc["Lucro Líquido"] = [
-        dre_calc["Lucro Operacional"][i] - dre_calc["Impostos Sobre Resultado"][i] - dre_calc["Dividendos"][i]
+        dre_calc["Lucro Operacional"][i] - dre_calc["Impostos Sobre Resultado"][i] - dre_calc["Dividendos"][i] + dre_calc["Receita Extra Operacional"][i]
         for i in range(5)
     ]
 
     df_fluxo.loc["Lucro Líquido"] = dre_calc["Lucro Líquido"]
     dre_por_cenario[cenario] = dre_calc
-
 
 # Adicionar custo por hectare à tabela de culturas
 df_culturas = pd.DataFrame([
@@ -245,37 +267,39 @@ df_culturas = pd.DataFrame([
         "Receita por ha": dados["receita"] / dados["hectares"] if dados["hectares"] > 0 else 0
     }
     for cultura, dados in culturas.items()
+] + [
+    {
+        "Cultura": f"Receita {cat}",
+        "Receita Total": receitas_extras[cat],
+        "Área (ha)": 0,
+        "Receita por ha": 0
+    }
+    for cat in ["Operacional", "Extra Operacional"] if receitas_extras[cat] > 0
 ])
 
-# Função para formatar valores em BRL
 def format_brl(x):
     try:
         return f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return x
 
-# Exibir tabela de culturas
 st.dataframe(
     df_culturas.style.format({
         "Receita Total": format_brl,
         "Área (ha)": "{:.2f}",
         "Receita por ha": format_brl,
-        "Custo por ha": format_brl
     }),
     use_container_width=True,
     hide_index=True
 )
 
-# Função para calcular CAGR
 def calcular_cagr(valor_inicial, valor_final, periodos):
     if valor_inicial <= 0 or valor_final <= 0 or periodos <= 0:
         return 0
     return ((valor_final / valor_inicial) ** (1 / periodos) - 1) * 100
 
-# Calcular indicadores
 indicadores = {cenario: {} for cenario in nomes_cenarios}
 for cenario in nomes_cenarios:
-    # Indicadores Avançados
     despesas_totais = [
         dre_por_cenario[cenario]["Impostos Sobre Venda"][i] + dre_por_cenario[cenario]["Despesas Operacionais"][i] +
         dre_por_cenario[cenario]["Despesas Administrativas"][i] + dre_por_cenario[cenario]["Despesas RH"][i] +
@@ -334,11 +358,16 @@ for cenario in nomes_cenarios:
     ]
 
     indicadores[cenario]["Break-Even Yield (sacas/ha)"] = [
-        (d + dre_por_cenario[cenario]["Impostos Sobre Venda"][i] + dre_por_cenario[cenario]["Despesas Administrativas"][i] +
-         dre_por_cenario[cenario]["Despesas RH"][i] + dre_por_cenario[cenario]["Despesas Extra Operacional"][i] +
-         dre_por_cenario[cenario]["Dividendos"][i] + dre_por_cenario[cenario]["Impostos Sobre Resultado"][i]) /
-        (hectares_total * (preco_total / total_sacas)) if hectares_total > 0 and total_sacas > 0 else 0
-        for i, d in enumerate(dre_por_cenario[cenario]["Despesas Operacionais"])
+        (
+            dre_por_cenario[cenario]["Impostos Sobre Venda"][i] +
+            dre_por_cenario[cenario]["Despesas Operacionais"][i] +
+            dre_por_cenario[cenario]["Despesas Administrativas"][i] +
+            dre_por_cenario[cenario]["Despesas RH"][i] +
+            dre_por_cenario[cenario]["Despesas Extra Operacional"][i] +
+            dre_por_cenario[cenario]["Dividendos"][i] +
+            dre_por_cenario[cenario]["Impostos Sobre Resultado"][i]
+        ) / (hectares_total * (preco_total / total_sacas)) if hectares_total > 0 and total_sacas > 0 else 0
+        for i in range(5)
     ]
     
     indicadores[cenario]["ROA (%)"] = [
@@ -349,7 +378,6 @@ for cenario in nomes_cenarios:
     
     indicadores[cenario]["CAGR Lucro Líquido (%)"] = calcular_cagr(dre_por_cenario[cenario]["Lucro Líquido"][0], dre_por_cenario[cenario]["Lucro Líquido"][-1], len(anos) - 1)
 
-# Exibição de indicadores
 st.markdown("### 📊 Indicadores Financeiros")
 parecer_por_cenario = {}
 for cenario in nomes_cenarios:
@@ -374,14 +402,12 @@ for cenario in nomes_cenarios:
 
     st.dataframe(styled_df, use_container_width=True)
 
-    # Exibir CAGRs separadamente
     col_a, col_b = st.columns(2)
     with col_a:
         st.metric("📈 CAGR Receita (5 anos)", f"{indicadores[cenario]['CAGR Receita (%)']:.2f}%")
     with col_b:
         st.metric("📈 CAGR Lucro Líquido (5 anos)", f"{indicadores[cenario]['CAGR Lucro Líquido (%)']:.2f}%")
 
-    # Tabela Resumo por Ano
     st.markdown("### 📘 Resumo Financeiro por Ano")
     dados_resumo = {
         "Ano": anos,
@@ -414,9 +440,7 @@ for cenario in nomes_cenarios:
     )
     st.dataframe(df_resumo_formatado, use_container_width=True, hide_index=True)
 
-# Gráficos Avançados
 st.markdown("### 📈 Visualizações")
-
 
 st.subheader("Receita vs. Lucro Líquido")
 fig1 = go.Figure()
@@ -474,9 +498,6 @@ for cenario in nomes_cenarios:
 fig3.update_layout(barmode="group", title="Produtividade por Hectare vs. Break-Even Yield", yaxis_title="R$/ha e Sacas/ha", template="plotly_white")
 st.plotly_chart(fig3, use_container_width=True)
 
-
-
-# Parecer Financeiro
 st.markdown("### 📝 Parecer Financeiro")
 for cenario in nomes_cenarios:
     st.subheader(f"Parecer - Cenário {cenario}")
@@ -543,7 +564,6 @@ for cenario in nomes_cenarios:
 
     st.markdown("\n".join([f"- {item}" for item in parecer]))
 
-# Exportação para Excel
 st.markdown("### ⬇️ Exportar Indicadores")
 
 output_excel = BytesIO()

@@ -25,10 +25,7 @@ inflacoes = [st.session_state.get(f"inf_{i}", 4.0) for i in range(5)]
 plantios = st.session_state["plantios"]
 df_base_fluxo = st.session_state["fluxo_caixa"]
 
-
-
 with st.expander("🔧 Cenário e Inflação"):
-    # --- INFLAÇÃO ---
     st.markdown("### 📈 Inflação Estimada por Ano")
     cols = st.columns(5)
     inflacoes = []
@@ -39,7 +36,6 @@ with st.expander("🔧 Cenário e Inflação"):
         with col:
             st.metric(f"Ano {i+1}", f"{valor:.2f}%")
 
-    # Recupera os valores dos cenários da session_state
     pess_receita = st.session_state["pess_receita"]
     pess_despesas = st.session_state["pess_despesas"]
     otm_receita = st.session_state["otm_receita"]
@@ -79,14 +75,28 @@ for i in range(5):
     fator = np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)])
     receita_base.append(hectares_total * media_receita_hectare * fator)
 
+# Adicionar Receitas Extras
+receitas_extras = {"Operacional": [0] * 5, "Extra Operacional": [0] * 5}
+if "receitas_adicionais" in st.session_state:
+    for receita in st.session_state["receitas_adicionais"].values():
+        valor = receita["valor"]
+        categoria = receita["categoria"]
+        for ano in receita["anos_aplicacao"]:
+            idx = anos.index(ano)
+            if categoria == "Operacional":
+                fator = np.prod([1 + inflacoes[j] / 100 for j in range(idx + 1)])
+                receitas_extras["Operacional"][idx] += valor * fator
+            else:
+                receitas_extras["Extra Operacional"][idx] += valor
+
 # CENÁRIOS DE RECEITA
 receitas = {
-    "Projetado": receita_base,
-    "Pessimista": [r * (1 - pess_receita / 100) for r in receita_base],
-    "Otimista": [r * (1 + otm_receita / 100) for r in receita_base]
+    "Projetado": [receita_base[i] + receitas_extras["Operacional"][i] for i in range(5)],
+    "Pessimista": [(receita_base[i] + receitas_extras["Operacional"][i]) * (1 - pess_receita / 100) for i in range(5)],
+    "Otimista": [(receita_base[i] + receitas_extras["Operacional"][i]) * (1 + otm_receita / 100) for i in range(5)]
 }
 
-# CENÁRIOS DE FLUXO DE DESPESAS (aplicando variação sobre df_base_fluxo)
+# CENÁRIOS DE FLUXO DE DESPESAS
 def ajustar_despesas(df_base, ajuste_percentual):
     df = df_base.copy()
     for row in df.index:
@@ -105,7 +115,7 @@ col1, col2 = st.columns(2)
 with col1:
     with st.expander("🧾 Entenda como a receita futura é calculada por cultura"):
         st.markdown("""
-        Para projetar as receitas futuras, consideramos a contribuição individual de cada cultura plantada e aplicamos a taxa de inflação anual.
+        Para projetar as receitas futuras, consideramos a contribuição individual de cada cultura plantada e receitas adicionais, aplicando a taxa de inflação anual apenas às receitas operacionais.
 
         **Passos do Cálculo:**
 
@@ -116,12 +126,14 @@ with col1:
 
             Isso nos dá a **receita bruta inicial** que cada cultura contribui.
 
-        2.  **Projeção com Inflação:** A receita base de cada cultura é então projetada para os próximos 5 anos. Para cada ano, aplicamos a taxa de inflação acumulada. Isso significa que a receita do Ano 2 considera a inflação do Ano 1 e do Ano 2, e assim por diante.
+        2.  **Receitas Adicionais:** Incluímos receitas operacionais (com inflação) e extra operacionais (sem inflação) conforme cadastradas.
 
-            *   **Exemplo (Ano 1):** `Receita Base da Cultura X * (1 + Inflação Ano 1)`
-            *   **Exemplo (Ano 2):** `Receita Base da Cultura X * (1 + Inflação Ano 1) * (1 + Inflação Ano 2)`
+        3.  **Projeção com Inflação:** A receita base de cada cultura e receitas operacionais adicionais é projetada para os próximos 5 anos com inflação acumulada. Receitas extra operacionais não sofrem ajuste de inflação.
 
-        3.  **Receita Total Estimada:** A "Receita Estimada" que você vê no Fluxo de Caixa Consolidado é a **soma das receitas projetadas de todas as suas culturas** para cada ano. Isso garante uma visão abrangente do seu faturamento futuro.
+            *   **Exemplo (Ano 1):** `(Receita Base da Cultura + Receita Operacional) * (1 + Inflação Ano 1) + Receita Extra Operacional`
+            *   **Exemplo (Ano 2):** `(Receita Base da Cultura + Receita Operacional) * (1 + Inflação Ano 1) * (1 + Inflação Ano 2) + Receita Extra Operacional`
+
+        4.  **Receita Total Estimada:** A "Receita Estimada" no Fluxo de Caixa Consolidado é a soma das receitas projetadas de todas as culturas e receitas adicionais para cada ano.
         """)
 
 with col2:
@@ -141,26 +153,25 @@ with col2:
         > 💡 Estes valores são simulações aproximadas, ideais para análise financeira e não substituem a apuração contábil real.
         """)
 
-
 # === EXIBIÇÃO COMPARATIVA DE CENÁRIOS ===
 st.markdown("### 📊 Análise de Cenários (Projetado, Pessimista, Otimista)")
 
 abas = st.tabs(["📈 Projetado", "🔻 Pessimista", "🔺 Otimista"])
 nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
 
-# Função para formatar valores em Real Brasileiro
 def format_brl(x):
     try:
         return f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return x
 
-# === ESTILIZAÇÃO DAS TABELAS ===
 def aplicar_estilo_fluxo(linha):
     if linha.name == "Receita Estimada":
         return ["background-color: #003366; color: white;" for _ in linha]
     elif linha.name == "Lucro Líquido":
         return ["background-color: #006400; color: white;" for _ in linha]
+    elif linha.name == "Receita Extra Operacional":
+        return ["background-color: #0059b2; color: white;" for _ in linha]
     else:
         return ["" for _ in linha]
 
@@ -169,6 +180,8 @@ def aplicar_estilo_dre(linha):
         return ["background-color: #003366; color: white;" for _ in linha]
     elif linha.name in ["Margem de Contribuição", "Resultado Operacional", "Lucro Operacional", "Lucro Líquido"]:
         return ["background-color: #006400; color: white;" for _ in linha]
+    elif linha.name == "Receita Extra Operacional":
+        return ["background-color: #0059b2; color: white;" for _ in linha]
     else:
         return ["" for _ in linha]
 
@@ -181,25 +194,19 @@ def gerar_excel_download(df_fluxo, df_dre, df_retorno, resumo, nome_cenario):
         df_fluxo.to_excel(writer, sheet_name="Fluxo de Caixa")
         df_dre.to_excel(writer, sheet_name="DRE")
         resumo.to_excel(writer, sheet_name="Resumo Financeiro")
-
+        df_retorno.to_excel(writer, sheet_name="Retorno por Real Gasto")
         workbook = writer.book
-        worksheet = writer.sheets["Retorno por Real Gasto"] = workbook.add_worksheet("Retorno por Real Gasto")
         currency_format = workbook.add_format({'num_format': 'R$ #,##0.00'})
-        for col_num, value in enumerate(df_retorno.columns.values):
-            worksheet.write(0, col_num + 1, value)
-        for row_num, value in enumerate(df_retorno.index.values):
-            worksheet.write(row_num + 1, 0, value)
-        for row_num, row_data in enumerate(df_retorno.values):
-            for col_num, value in enumerate(row_data):
-                worksheet.write(row_num + 1, col_num + 1, value, currency_format)
-
+        for sheet in writer.sheets.values():
+            for col_num in range(len(df_fluxo.columns) + 1):
+                sheet.set_column(col_num, col_num, 15, currency_format)
     output.seek(0)
     st.download_button(
-    label=f"⬇️ Baixar Excel - {nome_cenario}",
-    data=output,
-    file_name=f"cenario_{nome_cenario.lower()}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    key=f"download_excel_{nome_cenario.lower()}"
+        label=f"⬇️ Baixar Excel - {nome_cenario}",
+        data=output,
+        file_name=f"cenario_{nome_cenario.lower()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"download_excel_{nome_cenario.lower()}"
     )
 
 for aba, nome in zip(abas, nomes_cenarios):
@@ -207,27 +214,54 @@ for aba, nome in zip(abas, nomes_cenarios):
         st.subheader(f"📊 Fluxo de Caixa - Cenário {nome}")
         df_fluxo = fluxos[nome].copy()
         df_fluxo.loc["Receita Estimada"] = receitas[nome]
+        df_fluxo.loc["Receita Extra Operacional"] = receitas_extras["Extra Operacional"]
 
-        # --- Recalcular impostos com base coerente ao DRE ---
-        df_fluxo.loc["Impostos Sobre Venda"] = df_fluxo.loc["Receita Estimada"] * 0.0485
+        # Adicionar empréstimos ao fluxo de caixa (alinhado com DRE)
+        emprestimos_por_ano = [0] * len(anos)
+        if "emprestimos" in st.session_state:
+            for emp in st.session_state["emprestimos"]:
+                try:
+                    linha = f"Empréstimo: {emp['objeto']}"
+                    if linha not in df_fluxo.index:
+                        df_fluxo.loc[linha] = [0] * len(anos)
+                    start_year_index = anos.index(emp["ano_inicial"])
+                    end_year_index = anos.index(emp["ano_final"])
+                    parcelas_restantes = emp["parcelas"]
+                    for i in range(start_year_index, min(end_year_index + 1, len(anos))):
+                        if parcelas_restantes > 0:
+                            ajuste = (pess_despesas if nome == "Pessimista" else (-otm_despesas if nome == "Otimista" else 0)) / 100
+                            valor_parcela = emp["valor_parcela"] * (1 + ajuste)
+                            df_fluxo.at[linha, anos[i]] = valor_parcela  # Atribui em vez de somar
+                            emprestimos_por_ano[i] = valor_parcela  # Define o valor para o DRE
+                            parcelas_restantes -= 1
+                except (ValueError, KeyError):
+                    st.warning(f"Empréstimo inválido: {emp.get('objeto', 'Desconhecido')}. Ignorando.")
+                    continue
 
-        lucro_operacional = (
-            df_fluxo.loc["Receita Estimada"]
-            - df_fluxo.get("Impostos Sobre Venda", 0)
-            - df_fluxo.get("Despesas Operacionais", 0)
-            - df_fluxo.get("Despesas Administrativas", 0)
-            - df_fluxo.get("Despesas RH", 0)
-            - df_fluxo.get("Despesas Extra Operacional", 0)
-        )
+        ordem = ["Receita Estimada", "Receita Extra Operacional"] + [i for i in df_fluxo.index if i not in ["Receita Estimada", "Receita Extra Operacional"]]
+        df_fluxo = df_fluxo.loc[ordem]
 
-        df_fluxo.loc["Impostos Sobre Resultado"] = [
-            lo * 0.15 if lo > 0 else 0 for lo in lucro_operacional
+        style_idx_fluxo = [
+            {
+                "selector": f"tbody tr:nth-child({df_fluxo.index.get_loc('Receita Estimada') + 1}) th",
+                "props": [("background-color", "#003366"), ("color", "white")]
+            },
+            {
+                "selector": f"tbody tr:nth-child({df_fluxo.index.get_loc('Receita Extra Operacional') + 1}) th",
+                "props": [("background-color", "#4682B4"), ("color", "white")]
+            }
         ]
 
-        # === DRE ===
+        st.dataframe(
+            df_fluxo.style
+                .format(format_brl)
+                .apply(aplicar_estilo_fluxo, axis=1)
+                .set_table_styles(style_idx_fluxo, overwrite=False),
+            use_container_width=True
+        )
+
         st.subheader(f"📘 DRE - Cenário {nome}")
 
-        # Recupera informações de despesas corretamente da session_state
         df_despesas_info = pd.DataFrame(st.session_state.get("despesas", []))
         if not df_despesas_info.empty and "Categoria" in df_despesas_info.columns:
             df_despesas_info["Categoria"] = df_despesas_info["Categoria"].astype(str).str.strip()
@@ -241,30 +275,14 @@ for aba, nome in zip(abas, nomes_cenarios):
 
         def linha_despesa(cat):
             total = sum(df_despesas_info[df_despesas_info["Categoria"] == cat]["Valor"]) if not df_despesas_info.empty else 0
-            return [
-                total * np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)]) *
-                (1 + (pess_despesas if nome == "Pessimista" else (-otm_despesas if nome == "Otimista" else 0)) / 100)
-                for i in range(5)
-            ]
+            ajuste = (pess_despesas if nome == "Pessimista" else (-otm_despesas if nome == "Otimista" else 0)) / 100
+            return [total * np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)]) * (1 + ajuste) for i in range(5)]
 
         dre_calc["Despesas Operacionais"] = linha_despesa("Operacional")
         dre_calc["Despesas Administrativas"] = linha_despesa("Administrativa")
         dre_calc["Despesas RH"] = linha_despesa("RH")
-        extra_operacional = linha_despesa("Extra Operacional")
-
-        if "emprestimos" in st.session_state:
-            for emp in st.session_state["emprestimos"]:
-                start_year_index = anos.index(emp["ano_inicial"])
-                end_year_index = anos.index(emp["ano_final"])
-                num_years = end_year_index - start_year_index + 1
-                for i in range(start_year_index, min(start_year_index + min(emp["parcelas"], num_years), len(anos))):
-                    extra_operacional[i] += emp["valor_parcela"] * (
-                        1 + (pess_despesas if nome == "Pessimista" else (-otm_despesas if nome == "Otimista" else 0)) / 100
-                    )
-
-        dre_calc["Despesas Extra Operacional"] = extra_operacional
+        dre_calc["Despesas Extra Operacional"] = emprestimos_por_ano
         dre_calc["Dividendos"] = linha_despesa("Dividendos")
-
         dre_calc["Margem de Contribuição"] = [
             receita[i] - dre_calc["Impostos Sobre Venda"][i] - dre_calc["Despesas Operacionais"][i]
             for i in range(5)
@@ -281,41 +299,18 @@ for aba, nome in zip(abas, nomes_cenarios):
             dre_calc["Lucro Operacional"][i] * 0.15 if dre_calc["Lucro Operacional"][i] > 0 else 0
             for i in range(5)
         ]
+        dre_calc["Receita Extra Operacional"] = receitas_extras["Extra Operacional"]
         dre_calc["Lucro Líquido"] = [
-            dre_calc["Lucro Operacional"][i] - dre_calc["Impostos Sobre Resultado"][i] - dre_calc["Dividendos"][i]
+            dre_calc["Lucro Operacional"][i] - dre_calc["Impostos Sobre Resultado"][i] - dre_calc["Dividendos"][i] + dre_calc["Receita Extra Operacional"][i]
             for i in range(5)
         ]
-
-        # Agora sim: Lucro Líquido no Fluxo vem do DRE
-        df_fluxo.loc["Lucro Líquido"] = pd.Series(dre_calc["Lucro Líquido"], index=anos)
-
-        ordem = ["Receita Estimada"] + [i for i in df_fluxo.index if i not in ["Receita Estimada", "Lucro Líquido"]] + ["Lucro Líquido"]
-        df_fluxo = df_fluxo.loc[ordem]
-
-        style_idx_fluxo = [
-            {
-                "selector": f"tbody tr:nth-child({df_fluxo.index.get_loc('Receita Estimada') + 1}) th",
-                "props": [("background-color", "#003366"), ("color", "white")]
-            },
-            {
-                "selector": f"tbody tr:nth-child({df_fluxo.index.get_loc('Lucro Líquido') + 1}) th",
-                "props": [("background-color", "#006400"), ("color", "white")]
-            }
-        ]
-
-        st.dataframe(
-            df_fluxo.style
-                .format(format_brl)
-                .apply(aplicar_estilo_fluxo, axis=1)
-                .set_table_styles(style_idx_fluxo, overwrite=False)
-        )
 
         df_dre = pd.DataFrame(dre_calc, index=anos).T.loc[[ 
             "Receita", "Impostos Sobre Venda", "Despesas Operacionais",
             "Margem de Contribuição", "Despesas Administrativas", "Despesas RH",
             "Resultado Operacional", "Despesas Extra Operacional",
             "Lucro Operacional", "Impostos Sobre Resultado",
-            "Dividendos", "Lucro Líquido"
+            "Receita Extra Operacional", "Dividendos", "Lucro Líquido"
         ]]
 
         style_idx_dre = []
@@ -337,10 +332,9 @@ for aba, nome in zip(abas, nomes_cenarios):
                 .format(format_brl)
                 .apply(aplicar_estilo_dre, axis=1)
                 .set_table_styles(style_idx_dre, overwrite=False),
-            height=458
+            height=495
         )
 
-        # === CÁLCULO DO RETORNO POR REAL GASTO ===
         st.subheader(f"📈 Retorno por Real Gasto - Cenário {nome}")
         despesas_totais = (
             df_dre.loc["Impostos Sobre Venda"]
@@ -358,7 +352,7 @@ for aba, nome in zip(abas, nomes_cenarios):
             if retorno <= 0:
                 st.warning(f"Ano {i+1}: Sem lucro líquido (retorno não positivo).")
             else:
-                st.success(f"Ano {i+1}: Cada R\$ 1,00 gasto gera {format_brl(retorno)} de lucro líquido.")
+                st.success(f"Ano {i+1}: Cada R\\$ 1,00 gasto gera {format_brl(retorno)} de lucro líquido.")
 
         st.dataframe(
             df_retorno.style
@@ -367,28 +361,32 @@ for aba, nome in zip(abas, nomes_cenarios):
             use_container_width=True
         )
 
-        # 🔄 Adiciona os empréstimos ao df_despesas_info com Categoria 'Extra Operacional'
         emprestimos_detalhados = []
         if "emprestimos" in st.session_state:
             for i, emp in enumerate(st.session_state["emprestimos"], start=1):
-                descricao = emp.get("objeto", f"Empréstimo {i}").strip() or f"Empréstimo {i}"
-                total = emp["valor_parcela"] * min(emp["parcelas"], anos.index(emp["ano_final"]) - anos.index(emp["ano_inicial"]) + 1)
-                emprestimos_detalhados.append({
-                    "Descrição": f"{descricao} ({emp['ano_inicial']} a {emp['ano_final']})",
-                    "Valor": total,
-                    "Categoria": "Extra Operacional"
-                })
+                try:
+                    descricao = emp.get("objeto", f"Empréstimo {i}").strip() or f"Empréstimo {i}"
+                    start_year_index = anos.index(emp["ano_inicial"])
+                    end_year_index = anos.index(emp["ano_final"])
+                    num_years = end_year_index - start_year_index + 1
+                    total = emp["valor_parcela"] * min(emp["parcelas"], num_years)
+                    emprestimos_detalhados.append({
+                        "Descrição": f"{descricao} ({emp['ano_inicial']} a {emp['ano_final']})",
+                        "Valor": total,
+                        "Categoria": "Extra Operacional"
+                    })
+                except (ValueError, KeyError):
+                    st.warning(f"Empréstimo inválido: {emp.get('objeto', 'Desconhecido')}. Ignorando.")
+                    continue
         
-        # === RESUMO SIMPLIFICADO ===
         st.subheader(f"📌 Resumo Financeiro Anual - Cenário {nome}")
 
         resumo = pd.DataFrame({
             "Receita": df_dre.loc["Receita"],
             "Despesas Totais": despesas_totais,
             "Lucro Líquido": df_dre.loc["Lucro Líquido"]
-        })
+        }, index=anos)
 
-        # Formatação e exibição
         st.dataframe(
             resumo.style.format(format_brl),
             use_container_width=True
