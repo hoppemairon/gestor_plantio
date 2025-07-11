@@ -29,15 +29,15 @@ if "editing_loan_index" not in st.session_state:
     st.session_state["editing_loan_index"] = None
 
 # --- INFLAÇÃO ---
-st.markdown("### 📈 Inflação Estimada por Ano")
-cols = st.columns(5)
-inflacoes = []
+with st.expander("📈 Inflação Estimada por Ano"):
+    cols = st.columns(5)
+    inflacoes = []
 
-for i, col in enumerate(cols):
-    valor = st.session_state.get(f"inf_{i}", inflacao_padrao * 100)
-    inflacoes.append(valor)
-    with col:
-        st.metric(f"Ano {i+1}", f"{valor:.2f}%")
+    for i, col in enumerate(cols):
+        valor = st.session_state.get(f"inf_{i}", inflacao_padrao * 100)
+        inflacoes.append(valor)
+        with col:
+            st.metric(f"Ano {i+1}", f"{valor:.2f}%")
 
 # --- MODELOS DE EXCEL ---
 st.markdown("### 📥 Modelos de Excel para Preenchimento")
@@ -157,120 +157,122 @@ with st.expander("📤 Importar Empréstimos de Excel"):
             st.error(f"Erro ao ler arquivo: {e}")
 
 # --- ADICIONAR DESPESAS MANUALMENTE ---
-st.markdown("### 💰 Gerenciamento de Despesas")
 
-is_editing = st.session_state['editing_expense_index'] is not None
-expense_to_edit = st.session_state['despesas'][st.session_state['editing_expense_index']] if is_editing else None
+with st.expander("### 💰 Cadastro de Despesas"):
 
-with st.form("form_despesa", clear_on_submit=not is_editing):
-    st.subheader(f"{'Editar' if is_editing else 'Adicionar'} Despesa")
+    is_editing = st.session_state['editing_expense_index'] is not None
+    expense_to_edit = st.session_state['despesas'][st.session_state['editing_expense_index']] if is_editing else None
 
-    default_nome = expense_to_edit['Despesa'] if is_editing else ""
-    default_valor = expense_to_edit['Valor'] if is_editing else 0.0
-    categorias = ["Operacional", "RH", "Administrativa", "Extra Operacional", "Dividendos", "Impostos"]
-    default_categoria_index = categorias.index(
-        expense_to_edit['Categoria']) if is_editing and expense_to_edit['Categoria'] in categorias else 0
+    with st.form("form_despesa", clear_on_submit=not is_editing):
+        st.subheader(f"{'Editar' if is_editing else 'Adicionar'} Despesa")
 
-    nome = st.text_input("Nome da Despesa", value=default_nome, key="nome_despesa_input")
-    valor = st.number_input("Valor Anual (R$)", min_value=0.0, step=100.0, value=default_valor, key="valor_despesa_input")
-    categoria = st.selectbox("Categoria", categorias, index=default_categoria_index, key="categoria_select")
+        default_nome = expense_to_edit['Despesa'] if is_editing else ""
+        default_valor = expense_to_edit['Valor'] if is_editing else 0.0
+        categorias = ["Operacional", "RH", "Administrativa", "Extra Operacional", "Dividendos", "Impostos"]
+        default_categoria_index = categorias.index(
+            expense_to_edit['Categoria']) if is_editing and expense_to_edit['Categoria'] in categorias else 0
 
-    col_buttons = st.columns([1, 1, 4])
-    with col_buttons[0]:
-        submit = st.form_submit_button("Atualizar" if is_editing else "Adicionar")
-    with col_buttons[1]:
-        if is_editing:
-            cancel = st.form_submit_button("Cancelar Edição")
+        nome = st.text_input("Nome da Despesa", value=default_nome, key="nome_despesa_input")
+        valor = st.number_input("Valor Anual (R$)", min_value=0.0, step=100.0, value=default_valor, key="valor_despesa_input")
+        categoria = st.selectbox("Categoria", categorias, index=default_categoria_index, key="categoria_select")
 
-    if submit:
-        if not nome or valor <= 0:
-            st.warning("Preencha todos os campos corretamente.")
-        else:
-            nova_despesa = {"Despesa": nome.strip(), "Valor": valor, "Categoria": categoria}
+        col_buttons = st.columns([1, 1, 4])
+        with col_buttons[0]:
+            submit = st.form_submit_button("Atualizar" if is_editing else "Adicionar")
+        with col_buttons[1]:
             if is_editing:
-                st.session_state['despesas'][st.session_state['editing_expense_index']] = nova_despesa
-                st.session_state['editing_expense_index'] = None
-            else:
-                st.session_state['despesas'].append(nova_despesa)
-            st.rerun()
+                cancel = st.form_submit_button("Cancelar Edição")
 
-    if is_editing and cancel:
-        st.session_state['editing_expense_index'] = None
-        st.rerun()
+        if submit:
+            if not nome or valor <= 0:
+                st.warning("Preencha todos os campos corretamente.")
+            else:
+                nova_despesa = {"Despesa": nome.strip(), "Valor": valor, "Categoria": categoria}
+                if is_editing:
+                    st.session_state['despesas'][st.session_state['editing_expense_index']] = nova_despesa
+                    st.session_state['editing_expense_index'] = None
+                else:
+                    st.session_state['despesas'].append(nova_despesa)
+                st.rerun()
+
+        if is_editing and cancel:
+            st.session_state['editing_expense_index'] = None
+            st.rerun()
 
 # --- EMPRÉSTIMOS ---
-st.markdown("### 🏦 Cadastro de Empréstimos e Financiamentos")
+with st.expander("### 🏦 Cadastro de Empréstimos e Financiamentos"):
 
-editing_loan = st.session_state["editing_loan_index"] is not None
-emprestimo_to_edit = st.session_state["emprestimos"][st.session_state["editing_loan_index"]] if editing_loan else {}
 
-with st.form("form_emprestimo", clear_on_submit=not editing_loan):
-    st.subheader(f"{'Editar' if editing_loan else 'Cadastrar'} Empréstimo")
+    editing_loan = st.session_state["editing_loan_index"] is not None
+    emprestimo_to_edit = st.session_state["emprestimos"][st.session_state["editing_loan_index"]] if editing_loan else {}
 
-    col1, col2 = st.columns(2)
-    with col1:
-        banco = st.text_input("Banco", value=emprestimo_to_edit.get("banco", ""))
-        titular = st.text_input("Titular", value=emprestimo_to_edit.get("titular", ""))
-        contrato = st.text_input("Contrato Número", value=emprestimo_to_edit.get("contrato", ""))
-        data = st.date_input("Data do Contrato", format="DD/MM/YYYY",
-                             value=pd.to_datetime(emprestimo_to_edit.get("data", datetime.today())))
-        valor_total = st.number_input("Valor Total do Empréstimo", min_value=0.0, step=1000.0, format="%.2f",
-                                      value=emprestimo_to_edit.get("valor_total", 0.0))
-        objeto = st.text_input("Objeto", value=emprestimo_to_edit.get("objeto", ""))
+    with st.form("form_emprestimo", clear_on_submit=not editing_loan):
+        st.subheader(f"{'Editar' if editing_loan else 'Cadastrar'} Empréstimo")
 
-    with col2:
-        recursos = st.text_input("Recursos", value=emprestimo_to_edit.get("recursos", ""))
-        encargos = st.number_input("Encargos (% ao ano)", min_value=0.0, step=0.1,
-                                   value=float(emprestimo_to_edit.get("encargos", 0.0)))
-        parcelas = st.number_input("Quantidade de Parcelas", min_value=1, step=1,
-                                   value=emprestimo_to_edit.get("parcelas", 1))
-        valor_parcela = st.number_input("Valor Parcela (R$)", min_value=0.0, step=100.0,
-                                        value=emprestimo_to_edit.get("valor_parcela", 0.0))
-        periodicidade = st.selectbox("Período de Pagamento", ["ANUAL", "SEMESTRAL", "MENSAL"],
-                                     index=["ANUAL", "SEMESTRAL", "MENSAL"].index(
-                                         emprestimo_to_edit.get("periodo", "ANUAL")))
-        ano_inicial = st.selectbox("Ano Inicial da Projeção", anos,
-                                   index=anos.index(emprestimo_to_edit.get("ano_inicial", "Ano 1")))
-        ano_final = st.selectbox("Ano Final da Projeção", anos,
-                                 index=anos.index(emprestimo_to_edit.get("ano_final", "Ano 5")))
+        col1, col2 = st.columns(2)
+        with col1:
+            banco = st.text_input("Banco", value=emprestimo_to_edit.get("banco", ""))
+            titular = st.text_input("Titular", value=emprestimo_to_edit.get("titular", ""))
+            contrato = st.text_input("Contrato Número", value=emprestimo_to_edit.get("contrato", ""))
+            data = st.date_input("Data do Contrato", format="DD/MM/YYYY",
+                                value=pd.to_datetime(emprestimo_to_edit.get("data", datetime.today())))
+            valor_total = st.number_input("Valor Total do Empréstimo", min_value=0.0, step=1000.0, format="%.2f",
+                                        value=emprestimo_to_edit.get("valor_total", 0.0))
+            objeto = st.text_input("Objeto", value=emprestimo_to_edit.get("objeto", ""))
 
-        meses_intervalo = {"ANUAL": 12, "SEMESTRAL": 6, "MENSAL": 1}[periodicidade]
-        primeira_parcela = datetime(data.year + 1, 5, 15)
-        ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (parcelas - 1))
-        data_final = st.date_input("Data da Última Parcela", format="DD/MM/YYYY",
-                                   value=pd.to_datetime(ultima_parcela))
+        with col2:
+            recursos = st.text_input("Recursos", value=emprestimo_to_edit.get("recursos", ""))
+            encargos = st.number_input("Encargos (% ao ano)", min_value=0.0, step=0.1,
+                                    value=float(emprestimo_to_edit.get("encargos", 0.0)))
+            parcelas = st.number_input("Quantidade de Parcelas", min_value=1, step=1,
+                                    value=emprestimo_to_edit.get("parcelas", 1))
+            valor_parcela = st.number_input("Valor Parcela (R$)", min_value=0.0, step=100.0,
+                                            value=emprestimo_to_edit.get("valor_parcela", 0.0))
+            periodicidade = st.selectbox("Período de Pagamento", ["ANUAL", "SEMESTRAL", "MENSAL"],
+                                        index=["ANUAL", "SEMESTRAL", "MENSAL"].index(
+                                            emprestimo_to_edit.get("periodo", "ANUAL")))
+            ano_inicial = st.selectbox("Ano Inicial da Projeção", anos,
+                                    index=anos.index(emprestimo_to_edit.get("ano_inicial", "Ano 1")))
+            ano_final = st.selectbox("Ano Final da Projeção", anos,
+                                    index=anos.index(emprestimo_to_edit.get("ano_final", "Ano 5")))
 
-    # Validação: ano_final >= ano_inicial
-    if anos.index(ano_final) < anos.index(ano_inicial):
-        st.error("Ano Final deve ser maior ou igual ao Ano Inicial.")
-    else:
-        enviar = st.form_submit_button("Atualizar" if editing_loan else "Cadastrar")
+            meses_intervalo = {"ANUAL": 12, "SEMESTRAL": 6, "MENSAL": 1}[periodicidade]
+            primeira_parcela = datetime(data.year + 1, 5, 15)
+            ultima_parcela = primeira_parcela + relativedelta(months=meses_intervalo * (parcelas - 1))
+            data_final = st.date_input("Data da Última Parcela", format="DD/MM/YYYY",
+                                    value=pd.to_datetime(ultima_parcela))
 
-        if enviar:
-            novo = {
-                "banco": banco,
-                "titular": titular,
-                "contrato": contrato,
-                "data": str(data),
-                "valor_total": valor_total,
-                "objeto": objeto,
-                "recursos": recursos,
-                "encargos": encargos,
-                "parcelas": parcelas,
-                "valor_parcela": valor_parcela,
-                "periodo": periodicidade,
-                "data_ultima_parcela": data_final.strftime("%d/%m/%Y"),
-                "ano_inicial": ano_inicial,
-                "ano_final": ano_final
-            }
+        # Validação: ano_final >= ano_inicial
+        if anos.index(ano_final) < anos.index(ano_inicial):
+            st.error("Ano Final deve ser maior ou igual ao Ano Inicial.")
+        else:
+            enviar = st.form_submit_button("Atualizar" if editing_loan else "Cadastrar")
 
-            if editing_loan:
-                st.session_state["emprestimos"][st.session_state["editing_loan_index"]] = novo
-                st.session_state["editing_loan_index"] = None
-            else:
-                st.session_state["emprestimos"].append(novo)
-            st.success("Empréstimo salvo com sucesso!")
-            st.rerun()
+            if enviar:
+                novo = {
+                    "banco": banco,
+                    "titular": titular,
+                    "contrato": contrato,
+                    "data": str(data),
+                    "valor_total": valor_total,
+                    "objeto": objeto,
+                    "recursos": recursos,
+                    "encargos": encargos,
+                    "parcelas": parcelas,
+                    "valor_parcela": valor_parcela,
+                    "periodo": periodicidade,
+                    "data_ultima_parcela": data_final.strftime("%d/%m/%Y"),
+                    "ano_inicial": ano_inicial,
+                    "ano_final": ano_final
+                }
+
+                if editing_loan:
+                    st.session_state["emprestimos"][st.session_state["editing_loan_index"]] = novo
+                    st.session_state["editing_loan_index"] = None
+                else:
+                    st.session_state["emprestimos"].append(novo)
+                st.success("Empréstimo salvo com sucesso!")
+                st.rerun()
 
 # --- EXIBIÇÃO DE DESPESAS ---
 st.markdown("### Despesas Cadastradas")
