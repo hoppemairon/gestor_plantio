@@ -11,6 +11,7 @@ carregar_configuracoes()
 st.set_page_config(layout="wide", page_title="Indicadores Financeiros")
 st.title("📈 Indicadores Financeiros e Análise - Agronegócio")
 
+
 with st.expander("🧾 Entenda os Indicadores Financeiros"):
     st.markdown("""
     Abaixo, apresentamos indicadores financeiros avançados, adaptados ao contexto do agronegócio, com explicações sobre sua importância e interpretação:
