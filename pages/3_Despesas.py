@@ -179,6 +179,8 @@ def main():
             categoria = st.selectbox("Categoria", categorias, index=default_categoria_index, key="categoria_select")
 
             col_buttons = st.columns([1, 1, 4])
+            submit = False
+            cancel = False
             with col_buttons[0]:
                 submit = st.form_submit_button("Atualizar" if is_editing else "Adicionar")
             with col_buttons[1]:
@@ -321,6 +323,9 @@ def main():
     tem_despesas = st.session_state.get('despesas') and isinstance(st.session_state['despesas'], list)
     tem_emprestimos = st.session_state.get('emprestimos') and isinstance(st.session_state['emprestimos'], list)
 
+    # Initialize df_fluxo with empty DataFrame or proper default
+    df_fluxo = pd.DataFrame()
+
     if not tem_despesas and not tem_emprestimos:
         st.info("Adicione despesas ou empréstimos para ver a projeção.")
     else:
@@ -354,13 +359,20 @@ def main():
         st.session_state['fluxo_caixa'] = df_fluxo
 
 
-    totais_por_ano = df_fluxo.sum(axis=0)
+    # Only calculate totals if df_fluxo has data
+    if not df_fluxo.empty:
+        totais_por_ano = df_fluxo.sum(axis=0)
+    else:
+        # Create empty Series with anos as index
+        totais_por_ano = pd.Series(0.0, index=anos)
 
     st.markdown("#### 💵 Total de Despesas por Ano (Projetado com Inflação)")
     cols_totais = st.columns(len(anos))
     for i, ano in enumerate(anos):
         with cols_totais[i]:
-            st.metric(ano, format_brl(totais_por_ano[ano]))
+            # Safe access with default value of 0
+            valor = totais_por_ano.get(ano, 0.0)
+            st.metric(ano, format_brl(valor))
 
     # --- LIMPAR TUDO ---
     if st.button("Limpar Tudo", key="btn_clear_all"):
@@ -374,6 +386,74 @@ def main():
             st.rerun()
         else:
             st.warning("Marque a caixa de confirmação para limpar os dados.")
+
+    # --- EXPORTAÇÃO ---
+    st.markdown("---")
+    st.markdown("### 📤 Exportar Dados")
+    
+    def criar_relatorio_excel():
+        """Cria um arquivo Excel com fluxo de caixa e dados das despesas"""
+        buffer = BytesIO()
+        
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            # Aba 1: Fluxo de Caixa
+            if not df_fluxo.empty:
+                df_export = df_fluxo.copy()
+                df_export.to_excel(writer, sheet_name='Fluxo_Caixa', index=True)
+            
+            # Aba 2: Resumo de Totais por Ano
+            if not totais_por_ano.empty:
+                df_totais = pd.DataFrame({
+                    'Ano': totais_por_ano.index,
+                    'Total (R$)': totais_por_ano.values
+                })
+                df_totais.to_excel(writer, sheet_name='Totais_por_Ano', index=False)
+            
+            # Aba 3: Despesas Cadastradas
+            if st.session_state.get('despesas'):
+                df_despesas_export = pd.DataFrame(st.session_state['despesas'])
+                df_despesas_export.to_excel(writer, sheet_name='Despesas', index=False)
+            
+            # Aba 4: Empréstimos Cadastrados
+            if st.session_state.get('emprestimos'):
+                df_emprestimos_export = pd.DataFrame(st.session_state['emprestimos'])
+                df_emprestimos_export.to_excel(writer, sheet_name='Emprestimos', index=False)
+            
+            # Aba 5: Configurações (Inflação)
+            df_config = pd.DataFrame({
+                'Ano': anos,
+                'Inflacao (%)': inflacoes
+            })
+            df_config.to_excel(writer, sheet_name='Configuracoes', index=False)
+        
+        buffer.seek(0)
+        return buffer
+    
+    col_export1, col_export2 = st.columns([1, 3])
+    
+    with col_export1:
+        if st.button("📊 Gerar Relatório Excel", type="primary"):
+            if tem_despesas or tem_emprestimos:
+                try:
+                    excel_buffer = criar_relatorio_excel()
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"relatorio_despesas_{timestamp}.xlsx"
+                    
+                    st.download_button(
+                        label="⬇️ Baixar Relatório Excel",
+                        data=excel_buffer,
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_relatorio"
+                    )
+                    st.success("Relatório gerado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao gerar relatório: {e}")
+            else:
+                st.warning("Adicione despesas ou empréstimos antes de exportar.")
+    
+    with col_export2:
+        st.info("📋 **O relatório inclui:**\n- Fluxo de caixa projetado\n- Totais por ano\n- Despesas cadastradas\n- Empréstimos cadastrados\n- Configurações de inflação")
 
 if __name__ == "__main__":
     main()
