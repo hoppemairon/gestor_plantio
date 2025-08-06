@@ -114,13 +114,12 @@ def display_indicator_explanation():
 def get_base_financial_data():
     """
     Consolida a extração de dados financeiros base e o cálculo de receitas.
-    Retorna um dicionário com hectares_total, total_sacas, preco_total_base,
-    receitas_cenarios, receitas_extras_projetadas e total_ativos.
+    Inclui dados por cultura quando disponíveis.
     """
     required_keys = ["plantios", "dre_cenarios", "receitas_cenarios", "inflacoes", "anos"]
     for key in required_keys:
         if key not in st.session_state:
-            st.warning(f"Dados essenciais não encontrados: '{key}'. Por favor, verifique as páginas anteriores (especialmente a de 'Fluxo de Caixa').")
+            st.warning(f"Dados essenciais não encontrados: '{key}'. Por favor, verifique as páginas anteriores.")
             st.stop()
     if not st.session_state["plantios"]:
         st.warning("Nenhum plantio cadastrado. Cadastre ao menos um plantio para gerar os indicadores.")
@@ -132,30 +131,28 @@ def get_base_financial_data():
 
     hectares_total = 0
     total_sacas = 0
-    preco_total_base = 0 # Valor total da produção no ano base (sem inflação)
+    preco_total_base = 0
 
-    # Calcula totais de plantio
+    # Calcular totais de plantio
     for p_data in plantios.values():
         hectares = p_data.get("hectares", 0)
         sacas = p_data.get("sacas_por_hectare", 0)
         preco = p_data.get("preco_saca", 0)
         hectares_total += hectares
         total_sacas += sacas * hectares
-        preco_total_base += preco * sacas * hectares # Soma de (preço * sacas * hectares)
+        preco_total_base += preco * sacas * hectares
 
     if hectares_total == 0 or total_sacas == 0:
         st.error("Dados de plantio incompletos para estimar receita e indicadores. Verifique o cadastro de plantios.")
         st.stop()
 
-    # Estimativa de ativos totais (pode ser refinada ou configurável pelo usuário)
-    # Estimativa aproximada: R\$20.000/ha para terra + R\$1.000.000 para ativos fixos (máquinas, etc.)
+    # Estimativa de ativos totais
     total_ativos = hectares_total * 20000 + 1000000
 
-    # Receitas já calculadas e armazenadas em 4_Fluxo_de_Caixa.py
+    # Receitas já calculadas
     receitas_cenarios = st.session_state["receitas_cenarios"]
 
-    # Receitas extras projetadas (também já calculadas em 4_Fluxo_de_Caixa.py)
-    # Precisamos recriar a estrutura aqui, pois o dre_calc usa um formato diferente
+    # Receitas extras projetadas
     receitas_extras_projetadas = {"Operacional": [0] * len(anos), "Extra Operacional": [0] * len(anos)}
     if "receitas_adicionais" in st.session_state:
         for receita_add in st.session_state["receitas_adicionais"].values():
@@ -165,15 +162,52 @@ def get_base_financial_data():
                 try:
                     idx = anos.index(ano_aplicacao)
                     if categoria == "Operacional":
-                        # Aplica inflação para receitas operacionais
                         fator = np.prod([1 + inflacoes[j] for j in range(idx + 1)])
                         receitas_extras_projetadas["Operacional"][idx] += valor * fator
                     else:
-                        # Receitas extra operacionais não sofrem ajuste de inflação
                         receitas_extras_projetadas["Extra Operacional"][idx] += valor
                 except ValueError:
-                    # Ano não encontrado, ignora
                     continue
+
+    # Dados por cultura (se disponíveis)
+    custos_por_cultura = st.session_state.get('custos_por_cultura', {})
+    rateio_administrativo = st.session_state.get('rateio_administrativo', {})
+    
+    # Calcular receitas por cultura para TODOS OS CENÁRIOS
+    receitas_por_cultura_cenarios = {}
+    
+    if plantios and custos_por_cultura:
+        for cenario_name in ["Projetado", "Pessimista", "Otimista"]:
+            receitas_por_cultura_cenarios[cenario_name] = {}
+            
+            # Obter fatores de ajuste do cenário
+            pess_receita = st.session_state.get("pess_receita", 15)
+            otm_receita = st.session_state.get("otm_receita", 10)
+            
+            fator_receita = 1.0
+            if cenario_name == "Pessimista":
+                fator_receita = 1 - (pess_receita / 100)
+            elif cenario_name == "Otimista":
+                fator_receita = 1 + (otm_receita / 100)
+            
+            for plantio_nome, plantio_data in plantios.items():
+                cultura = plantio_data.get('cultura', '')
+                if cultura and cultura in custos_por_cultura:
+                    if cultura not in receitas_por_cultura_cenarios[cenario_name]:
+                        receitas_por_cultura_cenarios[cenario_name][cultura] = {}
+                        for ano in anos:
+                            receitas_por_cultura_cenarios[cenario_name][cultura][ano] = 0
+                    
+                    # Calcular receita da cultura para cada ano com ajuste de cenário
+                    hectares = plantio_data.get('hectares', 0)
+                    sacas_por_ha = plantio_data.get('sacas_por_hectare', 0)
+                    preco_saca = plantio_data.get('preco_saca', 0)
+                    
+                    for i, ano in enumerate(anos):
+                        fator_inflacao = np.prod([1 + inflacoes[j] / 100 for j in range(i + 1)])
+                        receita_base = hectares * sacas_por_ha * preco_saca * fator_inflacao
+                        receita_cenario = receita_base * fator_receita
+                        receitas_por_cultura_cenarios[cenario_name][cultura][ano] += receita_cenario
 
     return {
         "plantios": plantios,
@@ -189,9 +223,12 @@ def get_base_financial_data():
         "emprestimos": st.session_state.get("emprestimos", []),
         "hectares_total": hectares_total,
         "total_sacas": total_sacas,
-        "preco_total_base": preco_total_base, # Valor total da produção no ano base
+        "preco_total_base": preco_total_base,
         "total_ativos": total_ativos,
-        "receitas_extras_projetadas": receitas_extras_projetadas
+        "receitas_extras_projetadas": receitas_extras_projetadas,
+        "custos_por_cultura": custos_por_cultura,
+        "rateio_administrativo": rateio_administrativo,
+        "receitas_por_cultura_cenarios": receitas_por_cultura_cenarios
     }
 
 def calculate_indicators_for_scenario(scenario_name, dre_data, session_data):
@@ -303,364 +340,468 @@ def calculate_indicators_for_scenario(scenario_name, dre_data, session_data):
 
     return indicators
 
-def display_scenario_parameters(session_data):
-    with st.expander("###  ⚖️ Inflação e Parâmetros de Cenário Atuais"):
-        """Exibe os parâmetros atuais do cenário (inflação, ajustes pessimistas/otimistas)."""
-        st.markdown("### 📈 Inflação Estimada por Ano")
-        cols = st.columns(len(session_data["anos"]))
-        for i, col in enumerate(cols):
-            with col:
-                st.metric(f"Ano {i+1}", f"{session_data['inflacoes'][i]:.2f}%")
-
-        st.markdown("### 🔧 Parâmetros de Cenário Atuais")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("💸 Receita Pessimista", f"-{session_data['pess_receita']}%")
-        with col2:
-            st.metric("💰 Despesa Pessimista", f"+{session_data['pess_despesas']}%")
-        with col3:
-            st.metric("💸 Receita Otimista", f"+{session_data['otm_receita']}%")
-        with col4:
-            st.metric("💰 Despesa Otimista", f"-{session_data['otm_despesas']}%")
-
-def display_revenue_by_crop(session_data):
-    """Exibe o detalhamento da receita por cultura e receitas adicionais."""
-    st.markdown("### 💰 Receita por Cultura Agrícola e Receitas Extras (Ano Base)")
-    culturas = {}
-    for p in session_data["plantios"].values():
-        cultura = p["cultura"]
-        receita = p["hectares"] * p["sacas_por_hectare"] * p["preco_saca"]
-        if cultura not in culturas:
-            culturas[cultura] = {"receita": 0, "hectares": 0}
-        culturas[cultura]["receita"] += receita
-        culturas[cultura]["hectares"] += p["hectares"]
-
-    df_culturas_data = []
-    for cultura, dados in culturas.items():
-        df_culturas_data.append({
-            "Cultura": cultura,
-            "Receita Total": dados["receita"],
-            "Área (ha)": dados["hectares"],
-            "Receita por ha": dados["receita"] / dados["hectares"] if dados["hectares"] != 0 else 0
-        })
-
-    # Adicionar receitas adicionais se existirem no session_state
-    if "receitas_adicionais" in st.session_state:
-        receitas_extras_base = {"Operacional": 0, "Extra Operacional": 0}
-        for receita_add in st.session_state["receitas_adicionais"].values():
-            valor = receita_add["valor"]
-            categoria = receita_add["categoria"]
-            # Soma o valor base, não o projetado
-            receitas_extras_base[categoria] += valor
-
-        for cat in ["Operacional", "Extra Operacional"]:
-            if receitas_extras_base[cat] > 0:
-                df_culturas_data.append({
-                    "Cultura": f"Receita Extra ({cat})",
-                    "Receita Total": receitas_extras_base[cat],
-                    "Área (ha)": 0,
-                    "Receita por ha": 0
-                })
-
-    df_culturas = pd.DataFrame(df_culturas_data)
-
-    st.dataframe(
-        df_culturas.style.format({
-            "Receita Total": format_brl,
-            "Área (ha)": "{:.2f}",
-            "Receita por ha": format_brl,
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-    return df_culturas # Retorna para uso na exportação
-
-def display_indicators_table(all_indicators, anos):
-    """Exibe a tabela formatada de indicadores financeiros para cada cenário."""
-    st.markdown("### 📊 Indicadores Financeiros")
-    nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
-    for cenario_name in nomes_cenarios:
-        indicators = all_indicators[cenario_name]
-        st.subheader(f"Cenário {cenario_name}")
-        df_indicadores = pd.DataFrame({
-            k: v for k, v in indicators.items()
-            if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
-        }, index=anos)
-
-        styled_df = df_indicadores.style.format({
-            "Margem Líquida (%)": "{:.2f}%",
-            "Retorno por Real Gasto": "{:.2f}",
-            "Endividamento (%)": "{:.2f}%",
-            "Liquidez Operacional": "{:.2f}",
-            "Produtividade por Hectare (R$/ha)": format_brl,
-            "Custo por Receita (%)": "{:.2f}%",
-            "DSCR": "{:.2f}",
-            "Break-Even Yield (sacas/ha)": "{:.2f}",
-            "ROA (%)": "{:.2f}%",
-            "Custo por Hectare (R$/ha)": format_brl
-        })
-
-        st.dataframe(styled_df, use_container_width=True)
-
-        #col_a, col_b = st.columns(2)
-        #with col_a:
-        #    st.metric("📈 CAGR Receita (5 anos)", f"{indicators['CAGR Receita (%)']:.2f}%")
-        #with col_b:
-        #    st.metric("📈 CAGR Lucro Líquido (5 anos)", f"{indicators['CAGR Lucro Líquido (%)']:.2f}%")
-
-def display_financial_summary(all_dre_data, anos):
-    """Exibe o resumo financeiro anual (Receita, Despesas Totais, Lucro Líquido)."""
-    st.markdown("### 📘 Resumo Financeiro por Ano")
-    nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
-    for cenario_name in nomes_cenarios:
-        dre_data = all_dre_data[cenario_name]
-        st.subheader(f"Resumo - Cenário {cenario_name}")
-
-        # Recalcular despesas totais para consistência do resumo
-        despesas_totais = [
-            dre_data["Impostos Sobre Venda"][i] +
-            dre_data["Despesas Operacionais"][i] +
-            dre_data["Despesas Administrativas"][i] +
-            dre_data["Despesas RH"][i] +
-            dre_data["Despesas Extra Operacional"][i] +
-            dre_data["Dividendos"][i] +
-            dre_data["Impostos Sobre Resultado"][i]
-            for i in range(len(anos))
-        ]
-
-        resumo = pd.DataFrame({
-            "Receita": dre_data["Receita"],
-            "Despesas Totais": despesas_totais,
-            "Lucro Líquido": dre_data["Lucro Líquido"]
-        }, index=anos)
-
-        st.dataframe(
-            resumo.style.format({
-                "Receita": format_brl,
-                "Despesas Totais": format_brl,
-                "Lucro Líquido": format_brl,
-            }),
-            use_container_width=True
-        )
-
-def generate_visualizations(all_dre_data, all_indicators, anos, nomes_cenarios, session_data):
-    """Gera e exibe os gráficos Plotly."""
-    st.markdown("### 📈 Visualizações")
-
-    st.subheader("Receita vs. Lucro Líquido")
-    fig1 = go.Figure()
-    for cenario in nomes_cenarios:
-        fig1.add_trace(go.Bar(
-            x=anos, y=all_dre_data[cenario]["Receita"], name=f"Receita ({cenario})",
-            marker_color="#1f77b4" if cenario == "Projetado" else "#ff7f0e" if cenario == "Pessimista" else "#2ca02c"
-        ))
-        fig1.add_trace(go.Bar(
-            x=anos, y=all_dre_data[cenario]["Lucro Líquido"], name=f"Lucro Líquido ({cenario})",
-            marker_color="#aec7e8" if cenario == "Projetado" else "#ffbb78" if cenario == "Pessimista" else "#98df8a"
-        ))
-    fig1.update_layout(barmode="group", title="Comparação de Receita e Lucro Líquido", yaxis_title="R$", template="plotly_white")
-    st.plotly_chart(fig1, use_container_width=True)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Distribuição de Despesas (Cenário Projetado)")
-        despesas_info = session_data.get("despesas_info") # Usar o df_despesas_info do session_data
-        if not despesas_info.empty:
-            df_despesas_categorias = despesas_info.groupby("Categoria")["Valor"].sum()
-            if not df_despesas_categorias.empty:
-                fig4 = px.pie(values=df_despesas_categorias.values, names=df_despesas_categorias.index, title="Distribuição de Despesas por Categoria")
-                fig4.update_layout(template="plotly_white")
-                st.plotly_chart(fig4, use_container_width=True)
-            else:
-                st.warning("Nenhuma despesa cadastrada para exibir a distribuição.")
-        else:
-            st.warning("Nenhuma despesa cadastrada para exibir a distribuição.")
-
-
-    with col2:
-        st.subheader("Margem Líquida vs. Custo por Receita")
-        fig2 = go.Figure()
-        for cenario in nomes_cenarios:
-            fig2.add_trace(go.Scatter(
-                x=anos, y=all_indicators[cenario]["Margem Líquida (%)"], name=f"Margem Líquida ({cenario})",
-                line=dict(color="#1f77b4" if cenario == "Projetado" else "#ff7f0e" if cenario == "Pessimista" else "#2ca02c")
-            ))
-            fig2.add_trace(go.Scatter(
-                x=anos, y=all_indicators[cenario]["Custo por Receita (%)"], name=f"Custo por Receita ({cenario})",
-                line=dict(color="#aec7e8" if cenario == "Projetado" else "#ffbb78" if cenario == "Pessimista" else "#98df8a", dash="dash")
-            ))
-        fig2.update_layout(title="Margem Líquida vs. Custo por Receita", yaxis_title="Percentual (%)", template="plotly_white")
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.subheader("Produtividade por Hectare e Break-Even Yield")
-    fig3 = go.Figure()
-    for cenario in nomes_cenarios:
-        fig3.add_trace(go.Bar(
-            x=anos, y=all_indicators[cenario]["Produtividade por Hectare (R$/ha)"], name=f"Produtividade por Hectare ({cenario})",
-            marker_color="#1f77b4" if cenario == "Projetado" else "#ff7f0e" if cenario == "Pessimista" else "#2ca02c"
-        ))
-        fig3.add_trace(go.Scatter(
-            x=anos, y=all_indicators[cenario]["Break-Even Yield (sacas/ha)"], name=f"Break-Even Yield ({cenario})",
-            line=dict(color="#aec7e8" if cenario == "Projetado" else "#ffbb78" if cenario == "Pessimista" else "#98df8a")
-        ))
-    fig3.update_layout(barmode="group", title="Produtividade por Hectare vs. Break-Even Yield", yaxis_title="R$/ha e Sacas/ha", template="plotly_white")
-    st.plotly_chart(fig3, use_container_width=True)
-
-def generate_financial_opinion(all_indicators, session_data):
-    """Gera um parecer financeiro textual para cada cenário."""
-    st.markdown("### 📝 Parecer Financeiro")
-    nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
-    hectares_total = session_data["hectares_total"]
-    total_sacas = session_data["total_sacas"]
-    preco_total_base = session_data["preco_total_base"] # Valor total da produção no ano base
+def calculate_custos_cultura_por_cenario(custos_por_cultura_base, cenario_name, session_data):
+    """Calcula custos por cultura ajustados pelo cenário."""
+    if not custos_por_cultura_base:
+        return {}
     
-    # Calcular a receita média por hectare no ano base para comparação
-    media_receita_hectare_base = (preco_total_base / total_sacas) * (total_sacas / hectares_total) if total_sacas != 0 and hectares_total != 0 else 0
-    current_avg_yield = total_sacas / hectares_total if hectares_total != 0 else 0
-
-    for cenario in nomes_cenarios:
-        st.subheader(f"Parecer - Cenário {cenario}")
-        indicators = all_indicators[cenario]
-
-        margem_media = np.mean(indicators["Margem Líquida (%)"])
-        retorno_medio = np.mean(indicators["Retorno por Real Gasto"])
-        liquidez_media = np.mean(indicators["Liquidez Operacional"])
-        endividamento_medio = np.mean(indicators["Endividamento (%)"])
-        produtividade_media = np.mean(indicators["Produtividade por Hectare (R$/ha)"])
-        custo_receita_media = np.mean(indicators["Custo por Receita (%)"])
-        # Filtrar valores inf para média do DSCR
-        dscr_values = [x for x in indicators["DSCR"] if x != float("inf")]
-        dscr_medio = np.mean(dscr_values) if dscr_values else float("inf")
-        break_even_media = np.mean(indicators["Break-Even Yield (sacas/ha)"])
-        roa_medio = np.mean(indicators["ROA (%)"])
-
-        parecer = []
-        # Limiares para a opinião (podem ser configuráveis)
-        if margem_media < 10:
-            parecer.append(f"Margem Líquida Baixa ({margem_media:.2f}%): Rentabilidade abaixo do ideal. Considere renegociar preços com fornecedores ou investir em culturas de maior valor agregado.")
+    # Obter fatores de ajuste do cenário
+    pess_despesas = session_data.get("pess_despesas", 10)
+    otm_despesas = session_data.get("otm_despesas", 10)
+    
+    fator_custo = 1.0
+    if cenario_name == "Pessimista":
+        fator_custo = 1 + (pess_despesas / 100)
+    elif cenario_name == "Otimista":
+        fator_custo = 1 - (otm_despesas / 100)
+    
+    # Aplicar fator aos custos por cultura
+    custos_ajustados = {}
+    for cultura, df_custos in custos_por_cultura_base.items():
+        if not df_custos.empty:
+            custos_ajustados[cultura] = df_custos * fator_custo
         else:
-            parecer.append(f"Margem Líquida Saudável ({margem_media:.2f}%): Boa rentabilidade. Monitore custos para manter a consistência.")
+            custos_ajustados[cultura] = df_custos
+    
+    return custos_ajustados
 
-        if retorno_medio < 0.2:
-            parecer.append(f"Retorno por Real Gasto Baixo ({retorno_medio:.2f}): Gastos com baixo retorno. Avalie a redução de despesas operacionais ou otimize processos agrícolas.")
-        else:
-            parecer.append(f"Retorno por Real Gasto Adequado ({retorno_medio:.2f}): Investimentos geram retorno satisfatório. Considere reinvestir em tecnologia para aumentar a produtividade.")
+def display_indicators_by_cultura(session_data):
+    """Exibe indicadores detalhados por cultura para todos os cenários."""
+    custos_por_cultura = session_data.get("custos_por_cultura", {})
+    receitas_por_cultura_cenarios = session_data.get("receitas_por_cultura_cenarios", {})
+    
+    if not custos_por_cultura or not receitas_por_cultura_cenarios:
+        st.info("📌 Para visualizar indicadores por cultura, cadastre despesas/empréstimos com centros de custo na página de Despesas.")
+        return {}
+    
+    st.markdown("### 🌱 Análise Financeira por Cultura e Cenário")
+    
+    total_ativos = session_data["total_ativos"]
+    anos = session_data["anos"]
+    hectares_total = session_data["hectares_total"]
+    
+    # Criar abas para cada cenário
+    tab1, tab2, tab3 = st.tabs(["📊 Projetado", "📉 Pessimista", "📈 Otimista"])
+    tabs = [tab1, tab2, tab3]
+    cenarios = ["Projetado", "Pessimista", "Otimista"]
+    
+    all_indicators_cultura_cenarios = {}
+    
+    for tab, cenario_name in zip(tabs, cenarios):
+        with tab:
+            st.markdown(f"#### Indicadores por Cultura - Cenário {cenario_name}")
+            
+            # Calcular custos ajustados pelo cenário
+            custos_ajustados = calculate_custos_cultura_por_cenario(custos_por_cultura, cenario_name, session_data)
+            
+            # Obter receitas do cenário
+            receitas_cenario = receitas_por_cultura_cenarios.get(cenario_name, {})
+            
+            all_indicators_cultura_cenarios[cenario_name] = {}
+            
+            for cultura in custos_ajustados.keys():
+                if cultura in receitas_cenario:
+                    # Calcular hectares da cultura
+                    hectares_cultura = sum(
+                        plantio.get('hectares', 0) 
+                        for plantio in session_data["plantios"].values() 
+                        if plantio.get('cultura') == cultura
+                    )
+                    
+                    # Calcular ativos proporcionais
+                    total_ativos_cultura = (hectares_cultura / hectares_total * total_ativos) if hectares_total > 0 else 0
+                    
+                    # Calcular indicadores para a cultura no cenário
+                    indicators_cultura = calculate_indicators_for_cultura(
+                        cultura, 
+                        receitas_cenario[cultura], 
+                        custos_ajustados[cultura], 
+                        anos, 
+                        total_ativos_cultura
+                    )
+                    
+                    all_indicators_cultura_cenarios[cenario_name][cultura] = indicators_cultura
+                    
+                    # Exibir tabela de indicadores da cultura
+                    st.subheader(f"🌿 {cultura}")
+                    
+                    df_indicadores_cultura = pd.DataFrame({
+                        k: v for k, v in indicators_cultura.items()
+                        if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
+                    }, index=anos)
+                    
+                    styled_df_cultura = df_indicadores_cultura.style.format({
+                        "Margem Líquida (%)": "{:.2f}%",
+                        "Retorno por Real Gasto": "{:.2f}",
+                        "Liquidez Operacional": "{:.2f}",
+                        "Custo por Receita (%)": "{:.2f}%",
+                        "ROA (%)": "{:.2f}%"
+                    })
+                    
+                    st.dataframe(styled_df_cultura, use_container_width=True)
+                    
+                    # Métricas CAGR
+                    col_cagr1, col_cagr2 = st.columns(2)
+                    with col_cagr1:
+                        st.metric("📈 CAGR Receita (5 anos)", f"{indicators_cultura['CAGR Receita (%)']:.2f}%")
+                    with col_cagr2:
+                        st.metric("📈 CAGR Lucro Líquido (5 anos)", f"{indicators_cultura['CAGR Lucro Líquido (%)']:.2f}%")
+                    
+                    # Parecer da cultura
+                    generate_financial_opinion_cultura(indicators_cultura, cultura, hectares_cultura)
+                    
+                    st.markdown("---")
+    
+    return all_indicators_cultura_cenarios
 
-        if liquidez_media < 1.5:
-            parecer.append(f"Liquidez Operacional Baixa ({liquidez_media:.2f}): Risco de dificuldades para cobrir custos operacionais. Negocie prazos de pagamento ou busque linhas de crédito de curto prazo.")
-        else:
-            parecer.append(f"Liquidez Operacional Confortável ({liquidez_media:.2f}): Boa capacidade de sustentar operações. Mantenha reservas para safras incertas.")
+def generate_fluxo_caixa_consolidado_e_culturas(session_data, all_indicators_cultura_cenarios):
+    """Gera fluxo de caixa consolidado e por cultura."""
+    st.markdown("### 💰 Fluxo de Caixa Projetado")
+    
+    anos = session_data["anos"]
+    dre_cenarios = session_data["dre_cenarios"]
+    
+    # Criar abas para fluxo de caixa
+    tab_geral, tab_culturas = st.tabs(["💼 Consolidado", "🌱 Por Cultura"])
+    
+    with tab_geral:
+        st.markdown("#### 💼 Fluxo de Caixa Consolidado")
+        
+        # Criar DataFrame do fluxo de caixa consolidado
+        fluxo_consolidado = {}
+        
+        for cenario in ["Projetado", "Pessimista", "Otimista"]:
+            dre_data = dre_cenarios[cenario]
+            
+            fluxo_consolidado[cenario] = {
+                "Receita Operacional": dre_data["Receita"],
+                "(-) Impostos sobre Venda": [-x for x in dre_data["Impostos Sobre Venda"]],
+                "(-) Despesas Operacionais": [-x for x in dre_data["Despesas Operacionais"]],
+                "(-) Despesas Administrativas": [-x for x in dre_data["Despesas Administrativas"]],
+                "(-) Despesas RH": [-x for x in dre_data["Despesas RH"]],
+                "(=) EBITDA": [
+                    dre_data["Receita"][i] 
+                    - dre_data["Impostos Sobre Venda"][i]
+                    - dre_data["Despesas Operacionais"][i] 
+                    - dre_data["Despesas Administrativas"][i]
+                    - dre_data["Despesas RH"][i]
+                    for i in range(len(anos))
+                ],
+                "(-) Despesas Extra Operacionais": [-x for x in dre_data["Despesas Extra Operacional"]],
+                "(-) Dividendos": [-x for x in dre_data["Dividendos"]],
+                "(-) Impostos sobre Resultado": [-x for x in dre_data["Impostos Sobre Resultado"]],
+                "(=) FLUXO DE CAIXA LÍQUIDO": dre_data["Lucro Líquido"]
+            }
+        
+        # Exibir fluxo de caixa por cenário
+        for cenario in ["Projetado", "Pessimista", "Otimista"]:
+            emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
+            
+            with st.expander(f"{emoji} Fluxo de Caixa - {cenario}"):
+                df_fluxo = pd.DataFrame(fluxo_consolidado[cenario], index=anos).T
+                
+                # Aplicar formatação
+                styled_fluxo = df_fluxo.style.format(lambda x: f"R$ {x:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+                
+                # Destacar linhas importantes
+                def highlight_important_rows(s):
+                    styles = []
+                    for idx in s.index:
+                        if "(=)" in str(idx):
+                            styles.append('background-color: #e6f3ff; font-weight: bold')
+                        elif "(-)" in str(idx):
+                            styles.append('color: #d32f2f')
+                        else:
+                            styles.append('')
+                    return styles
+                
+                styled_fluxo = styled_fluxo.apply(highlight_important_rows, axis=1)
+                st.dataframe(styled_fluxo, use_container_width=True)
+                
+                # Resumo do cenário
+                total_5_anos = sum(fluxo_consolidado[cenario]["(=) FLUXO DE CAIXA LÍQUIDO"])
+                media_anual = total_5_anos / len(anos)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total 5 Anos", f"R$ {total_5_anos:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+                with col2:
+                    st.metric("Média Anual", f"R$ {media_anual:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    
+    with tab_culturas:
+        st.markdown("#### 🌱 Fluxo de Caixa por Cultura")
+        
+        if not all_indicators_cultura_cenarios:
+            st.info("📌 Dados por cultura não disponíveis. Configure centros de custo na página de Despesas.")
+            return fluxo_consolidado, {}
+        
+        # Selecionar cenário para análise por cultura
+        cenario_selecionado = st.selectbox(
+            "Selecione o cenário para análise:",
+            ["Projetado", "Pessimista", "Otimista"],
+            key="fluxo_cultura_cenario"
+        )
+        
+        if cenario_selecionado not in all_indicators_cultura_cenarios:
+            st.warning("Dados do cenário selecionado não disponíveis.")
+            return fluxo_consolidado, {}
+        
+        receitas_por_cultura = session_data.get("receitas_por_cultura_cenarios", {}).get(cenario_selecionado, {})
+        custos_por_cultura = session_data.get("custos_por_cultura", {})
+        
+        # Calcular custos ajustados pelo cenário
+        custos_ajustados = calculate_custos_cultura_por_cenario(custos_por_cultura, cenario_selecionado, session_data)
+        
+        fluxos_por_cultura = {}
+        
+        for cultura in receitas_por_cultura.keys():
+            if cultura in custos_ajustados:
+                
+                # Obter receitas da cultura
+                receitas_cultura = [receitas_por_cultura[cultura].get(ano, 0) for ano in anos]
+                
+                # Obter custos da cultura
+                if isinstance(custos_ajustados[cultura], pd.DataFrame) and not custos_ajustados[cultura].empty:
+                    custos_totais = custos_ajustados[cultura].sum(axis=0).tolist()
+                else:
+                    custos_totais = [0] * len(anos)
+                
+                # Estimar impostos (aproximação baseada na proporção geral)
+                impostos_receita = session_data["dre_cenarios"][cenario_selecionado]["Impostos Sobre Venda"]
+                receita_geral = session_data["dre_cenarios"][cenario_selecionado]["Receita"]
+                
+                impostos_cultura = []
+                for i, ano in enumerate(anos):
+                    if receita_geral[i] > 0:
+                        proporcao_receita = receitas_cultura[i] / receita_geral[i]
+                        imposto_estimado = impostos_receita[i] * proporcao_receita
+                        impostos_cultura.append(imposto_estimado)
+                    else:
+                        impostos_cultura.append(0)
+                
+                # Estimar impostos sobre resultado
+                lucro_bruto = [receitas_cultura[i] - impostos_cultura[i] - custos_totais[i] for i in range(len(anos))]
+                impostos_resultado = [max(0, lucro * 0.25) for lucro in lucro_bruto]  # Aproximação de 25%
+                
+                # Fluxo líquido
+                fluxo_liquido = [
+                    receitas_cultura[i] - impostos_cultura[i] - custos_totais[i] - impostos_resultado[i]
+                    for i in range(len(anos))
+                ]
+                
+                fluxos_por_cultura[cultura] = {
+                    "(+) Receita Operacional": receitas_cultura,
+                    "(-) Impostos sobre Venda": [-x for x in impostos_cultura],
+                    "(-) Custos Diretos": [-x for x in custos_totais],
+                    "(=) Lucro Bruto": lucro_bruto,
+                    "(-) Impostos sobre Resultado": [-x for x in impostos_resultado],
+                    "(=) FLUXO DE CAIXA LÍQUIDO": fluxo_liquido
+                }
+        
+        # Exibir fluxo de caixa por cultura
+        for cultura, fluxo_data in fluxos_por_cultura.items():
+            with st.expander(f"🌿 {cultura} - Fluxo de Caixa"):
+                df_fluxo_cultura = pd.DataFrame(fluxo_data, index=anos).T
+                
+                # Aplicar formatação
+                styled_fluxo_cultura = df_fluxo_cultura.style.format(
+                    lambda x: f"R$ {x:,.0f}".replace(",", "v").replace(".", ",").replace("v", ".")
+                )
+                
+                # Destacar linhas importantes
+                def highlight_cultura_rows(s):
+                    styles = []
+                    for idx in s.index:
+                        if "(=)" in str(idx):
+                            styles.append('background-color: #e8f5e8; font-weight: bold')
+                        elif "(-)" in str(idx):
+                            styles.append('color: #d32f2f')
+                        else:
+                            styles.append('color: #2e7d32')
+                    return styles
+                
+                styled_fluxo_cultura = styled_fluxo_cultura.apply(highlight_cultura_rows, axis=1)
+                st.dataframe(styled_fluxo_cultura, use_container_width=True)
+                
+                # Métricas da cultura
+                total_cultura = sum(fluxo_data["(=) FLUXO DE CAIXA LÍQUIDO"])
+                media_cultura = total_cultura / len(anos)
+                
+                # Calcular hectares da cultura
+                hectares_cultura = sum(
+                    plantio.get('hectares', 0) 
+                    for plantio in session_data["plantios"].values() 
+                    if plantio.get('cultura') == cultura
+                )
+                
+                fluxo_por_hectare = media_cultura / hectares_cultura if hectares_cultura > 0 else 0
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total 5 Anos", f"R$ {total_cultura:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+                with col2:
+                    st.metric("Média Anual", f"R$ {media_cultura:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+                with col3:
+                    st.metric("Fluxo/Hectare/Ano", f"R$ {fluxo_por_hectare:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        
+        # Comparativo entre culturas
+        if len(fluxos_por_cultura) > 1:
+            st.markdown("#### 📊 Comparativo de Fluxo de Caixa entre Culturas")
+            
+            comparativo_data = []
+            for cultura, fluxo_data in fluxos_por_cultura.items():
+                total_fluxo = sum(fluxo_data["(=) FLUXO DE CAIXA LÍQUIDO"])
+                media_anual = total_fluxo / len(anos)
+                
+                # Calcular hectares
+                hectares = sum(
+                    plantio.get('hectares', 0) 
+                    for plantio in session_data["plantios"].values() 
+                    if plantio.get('cultura') == cultura
+                )
+                
+                fluxo_por_ha = media_anual / hectares if hectares > 0 else 0
+                
+                comparativo_data.append({
+                    "Cultura": cultura,
+                    "Área (ha)": hectares,
+                    "Fluxo Total (5 anos)": total_fluxo,
+                    "Fluxo Médio Anual": media_anual,
+                    "Fluxo por Hectare/Ano": fluxo_por_ha
+                })
+            
+            df_comparativo = pd.DataFrame(comparativo_data)
+            df_comparativo = df_comparativo.sort_values("Fluxo por Hectare/Ano", ascending=False)
+            
+            # Aplicar formatação
+            styled_comparativo = df_comparativo.style.format({
+                "Área (ha)": "{:.1f}",
+                "Fluxo Total (5 anos)": lambda x: f"R$ {x:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."),
+                "Fluxo Médio Anual": lambda x: f"R$ {x:,.0f}".replace(",", "v").replace(".", ",").replace("v", "."),
+                "Fluxo por Hectare/Ano": lambda x: f"R$ {x:,.0f}".replace(",", "v").replace(".", ",").replace("v", ".")
+            })
+            
+            st.dataframe(styled_comparativo, use_container_width=True)
+            
+            # Análise do comparativo
+            if not df_comparativo.empty:
+                melhor_cultura = df_comparativo.iloc[0]
+                pior_cultura = df_comparativo.iloc[-1]
+                
+                st.markdown("##### 📈 Análise Comparativa:")
+                
+                analise_comparativa = f"""
+                **🥇 Melhor Performance:** {melhor_cultura['Cultura']}
+                - Fluxo por hectare/ano: R$ {melhor_cultura['Fluxo por Hectare/Ano']:,.0f}
+                - Área: {melhor_cultura['Área (ha)']:.1f} ha
+                
+                **🔻 Menor Performance:** {pior_cultura['Cultura']}
+                - Fluxo por hectare/ano: R$ {pior_cultura['Fluxo por Hectare/Ano']:,.0f}
+                - Área: {pior_cultura['Área (ha)']:.1f} ha
+                
+                **💡 Oportunidade:** Diferença de R$ {melhor_cultura['Fluxo por Hectare/Ano'] - pior_cultura['Fluxo por Hectare/Ano']:,.0f} por hectare/ano
+                """
+                
+                st.markdown(analise_comparativa.replace(",", "v").replace(".", ",").replace("v", "."))
+    
+    return fluxo_consolidado, fluxos_por_cultura
 
-        if endividamento_medio > 30:
-            parecer.append(f"Alto Endividamento ({endividamento_medio:.2f}%): Dívidas elevadas. Priorize a quitação de empréstimos de alto custo ou renegocie taxas de juros.")
-        else:
-            parecer.append(f"Endividamento Controlado ({endividamento_medio:.2f}%): Dívidas em nível gerenciável. Considere investimentos estratégicos, como expansão de área plantada.")
-
-        if produtividade_media < media_receita_hectare_base * 0.8: # Comparar com uma linha de base ou média
-            parecer.append(f"Produtividade por Hectare Baixa ({format_brl(produtividade_media)}): A receita por hectare está abaixo da média esperada. Avalie técnicas de cultivo ou rotação de culturas.")
-        else:
-            parecer.append(f"Produtividade por Hectare Boa ({format_brl(produtividade_media)}): Boa eficiência no uso da terra. Considere investir em tecnologia para manter ou aumentar a produtividade.")
-
-        if custo_receita_media > 70:
-            parecer.append(f"Custo por Receita Alto ({custo_receita_media:.2f}%): Custos operacionais consomem grande parte da receita. Analise insumos e processos para reduzir despesas.")
-        else:
-            parecer.append(f"Custo por Receita Controlado ({custo_receita_media:.2f}%): Boa gestão de custos. Continue monitorando preços de insumos.")
-
-        if dscr_medio != float("inf") and dscr_medio < 1.25:
-            parecer.append(f"DSCR Baixo ({dscr_medio:.2f}): Risco de dificuldades no pagamento de dívidas. Considere reestruturar financiamentos ou aumentar a receita.")
-        else:
-            parecer.append(f"DSCR Adequado ({dscr_medio:.2f}): Boa capacidade de cobrir dívidas. Mantenha o lucro operacional estável.")
-
-        # Comparação do Break-Even Yield: definir o que significa "alto".
-        # Vamos comparar com uma porcentagem da produtividade média atual.
-        if break_even_media > current_avg_yield * 0.8 and current_avg_yield != 0: # Se o break-even estiver próximo de 80% da produtividade atual
-            parecer.append(f"Break-Even Yield Alto ({break_even_media:.2f} sacas/ha): Alta dependência de produtividade para cobrir custos. Considere culturas mais resilientes ou seguros agrícolas.")
-        else:
-            parecer.append(f"Break-Even Yield Seguro ({break_even_media:.2f} sacas/ha): Margem de segurança confortável contra falhas na safra.")
-
-        if roa_medio < 5:
-            parecer.append(f"ROA Baixo ({roa_medio:.2f}%): Baixa eficiência no uso de ativos. Avalie a venda de ativos ociosos ou investimentos em equipamentos mais produtivos.")
-        else:
-            parecer.append(f"ROA Adequado ({roa_medio:.2f}%): Boa utilização dos ativos. Considere expansão controlada ou modernização.")
-
-        if indicators["CAGR Lucro Líquido (%)"] < 0:
-            parecer.append(f"Crescimento Negativo do Lucro ({indicators['CAGR Lucro Líquido (%)']:.2f}%): Lucro em queda. Revisar estratégias de custo, preço e produtividade.")
-        else:
-            parecer.append(f"Crescimento do Lucro ({indicators['CAGR Lucro Líquido (%)']:.2f}%): Lucro em trajetória positiva. Considere reinvestir em áreas estratégicas.")
-
-        st.markdown("\n".join([f"- {item}" for item in parecer]))
-
-def generate_excel_export(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos):
-    """Gera e fornece um botão de download do Excel para todos os dados."""
+def generate_excel_export_with_cultura(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos, all_indicators_cultura_cenarios=None, fluxo_consolidado=None, fluxos_por_cultura=None):
+    """Gera exportação Excel incluindo dados por cultura e fluxos de caixa."""
     st.markdown("### ⬇️ Exportar Relatório Completo")
     
     def criar_relatorio_completo():
-        """Cria um arquivo Excel completo com Fluxo de Caixa e Indicadores"""
         output_excel = BytesIO()
         
         with pd.ExcelWriter(output_excel, engine="xlsxwriter") as writer:
-            # === DADOS DE INDICADORES ===
+            # === DADOS GERAIS POR CENÁRIO ===
             for cenario in nomes_cenarios:
-                # Indicadores
+                # Indicadores gerais
                 indicators_df_for_excel = pd.DataFrame({
                     k: v for k, v in all_indicators[cenario].items()
                     if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
                 }, index=anos)
-                # Adicionar CAGR como uma linha separada para clareza no Excel
                 cagr_row_data = [all_indicators[cenario]["CAGR Receita (%)"], all_indicators[cenario]["CAGR Lucro Líquido (%)"]] + \
                                 [np.nan] * (len(indicators_df_for_excel.columns) - 2)
                 cagr_row = pd.Series(cagr_row_data, index=indicators_df_for_excel.columns, name="CAGR")
                 indicators_df_for_excel = pd.concat([indicators_df_for_excel, pd.DataFrame(cagr_row).T])
-                indicators_df_for_excel.to_excel(writer, sheet_name=f"Indicadores_{cenario}")
+                indicators_df_for_excel.to_excel(writer, sheet_name=f"Indicadores_Geral_{cenario}")
 
-                # DRE
+                # DRE geral
                 df_dre_for_excel = pd.DataFrame(all_dre_data[cenario], index=anos).T
-                df_dre_for_excel.to_excel(writer, sheet_name=f"DRE_{cenario}")
+                df_dre_for_excel.to_excel(writer, sheet_name=f"DRE_Geral_{cenario}")
 
-                # Resumo
-                despesas_totais_summary = [
-                    all_dre_data[cenario]["Impostos Sobre Venda"][i] +
-                    all_dre_data[cenario]["Despesas Operacionais"][i] +
-                    all_dre_data[cenario]["Despesas Administrativas"][i] +
-                    all_dre_data[cenario]["Despesas RH"][i] +
-                    all_dre_data[cenario]["Despesas Extra Operacional"][i] +
-                    all_dre_data[cenario]["Dividendos"][i] +
-                    all_dre_data[cenario]["Impostos Sobre Resultado"][i]
-                    for i in range(len(anos))
-                ]
-                summary_df = pd.DataFrame({
-                    "Receita": all_dre_data[cenario]["Receita"],
-                    "Despesas Totais": despesas_totais_summary,
-                    "Lucro Líquido": all_dre_data[cenario]["Lucro Líquido"]
-                }, index=anos)
-                summary_df.to_excel(writer, sheet_name=f"Resumo_{cenario}")
-
-            # === DADOS DE FLUXO DE CAIXA ===
-            # Incluir dados das despesas se existirem
+            # === DADOS POR CULTURA E CENÁRIO ===
+            if all_indicators_cultura_cenarios:
+                for cenario_name in nomes_cenarios:
+                    if cenario_name in all_indicators_cultura_cenarios:
+                        for cultura, indicators_cultura in all_indicators_cultura_cenarios[cenario_name].items():
+                            # Indicadores por cultura e cenário
+                            df_cultura_indicators = pd.DataFrame({
+                                k: v for k, v in indicators_cultura.items()
+                                if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
+                            }, index=anos)
+                            
+                            # Adicionar CAGR
+                            cagr_cultura_data = [indicators_cultura["CAGR Receita (%)"], indicators_cultura["CAGR Lucro Líquido (%)"]] + \
+                                               [np.nan] * (len(df_cultura_indicators.columns) - 2)
+                            cagr_cultura_row = pd.Series(cagr_cultura_data, index=df_cultura_indicators.columns, name="CAGR")
+                            df_cultura_indicators = pd.concat([df_cultura_indicators, pd.DataFrame(cagr_cultura_row).T])
+                            df_cultura_indicators.to_excel(writer, sheet_name=f"Indicadores_{cultura}_{cenario_name}")
+            
+            # === NOVOS DADOS: FLUXOS DE CAIXA ===
+            if fluxo_consolidado:
+                for cenario, fluxo_data in fluxo_consolidado.items():
+                    df_fluxo = pd.DataFrame(fluxo_data, index=anos).T
+                    df_fluxo.to_excel(writer, sheet_name=f'FluxoCaixa_Geral_{cenario}', index=True)
+            
+            if fluxos_por_cultura:
+                for cultura, fluxo_data in fluxos_por_cultura.items():
+                    df_fluxo_cultura = pd.DataFrame(fluxo_data, index=anos).T
+                    df_fluxo_cultura.to_excel(writer, sheet_name=f'FluxoCaixa_{cultura}', index=True)
+                
+                # Criar comparativo de fluxos por cultura
+                comparativo_fluxos = []
+                for cultura, fluxo_data in fluxos_por_cultura.items():
+                    total_fluxo = sum(fluxo_data["(=) FLUXO DE CAIXA LÍQUIDO"])
+                    media_anual = total_fluxo / len(anos)
+                    
+                    hectares = sum(
+                        plantio.get('hectares', 0) 
+                        for plantio_nome, plantio in st.session_state.get('plantios', {}).items() 
+                        if plantio.get('cultura') == cultura
+                    )
+                    
+                    comparativo_fluxos.append({
+                        'Cultura': cultura,
+                        'Area_ha': hectares,
+                        'Fluxo_Total_5anos': total_fluxo,
+                        'Fluxo_Medio_Anual': media_anual,
+                        'Fluxo_por_Hectare_Ano': media_anual / hectares if hectares > 0 else 0
+                    })
+                
+                if comparativo_fluxos:
+                    df_comparativo_fluxos = pd.DataFrame(comparativo_fluxos)
+                    df_comparativo_fluxos.to_excel(writer, sheet_name='Comparativo_FluxoCaixa_Culturas', index=False)
+            
+            # === DADOS EXISTENTES ===
+            if st.session_state.get('custos_por_cultura'):
+                for cultura, df_cultura in st.session_state['custos_por_cultura'].items():
+                    if not df_cultura.empty:
+                        df_cultura.to_excel(writer, sheet_name=f'Custos_{cultura}', index=True)
+            
             if st.session_state.get('fluxo_caixa') is not None and not st.session_state['fluxo_caixa'].empty:
                 df_fluxo_despesas = st.session_state['fluxo_caixa'].copy()
                 df_fluxo_despesas.to_excel(writer, sheet_name='Fluxo_Despesas', index=True)
-                
-                # Totais de despesas por ano
-                totais_despesas = df_fluxo_despesas.sum(axis=0)
-                df_totais_despesas = pd.DataFrame({
-                    'Ano': totais_despesas.index,
-                    'Total Despesas (R$)': totais_despesas.values
-                })
-                df_totais_despesas.to_excel(writer, sheet_name='Totais_Despesas', index=False)
             
-            # Incluir despesas cadastradas
             if st.session_state.get('despesas'):
                 df_despesas_cadastradas = pd.DataFrame(st.session_state['despesas'])
                 df_despesas_cadastradas.to_excel(writer, sheet_name='Despesas_Cadastradas', index=False)
-            
-            # Incluir empréstimos cadastrados
+
             if st.session_state.get('emprestimos'):
                 df_emprestimos_cadastrados = pd.DataFrame(st.session_state['emprestimos'])
                 df_emprestimos_cadastrados.to_excel(writer, sheet_name='Emprestimos_Cadastrados', index=False)
-        
-            # Incluir plantios cadastrados
+            
             if st.session_state.get('plantios'):
                 plantios_list = []
                 for nome, dados in st.session_state['plantios'].items():
@@ -670,330 +811,19 @@ def generate_excel_export(all_indicators, all_dre_data, df_culturas_for_excel, n
                 df_plantios = pd.DataFrame(plantios_list)
                 df_plantios.to_excel(writer, sheet_name='Plantios_Cadastrados', index=False)
             
-            # Incluir receitas adicionais se existirem
-            if st.session_state.get('receitas_adicionais'):
-                receitas_list = []
-                for nome, dados in st.session_state['receitas_adicionais'].items():
-                    receita_row = {'Nome': nome}
-                    receita_row.update(dados)
-                    # Converter lista de anos para string
-                    if 'anos_aplicacao' in receita_row:
-                        receita_row['anos_aplicacao'] = ', '.join(receita_row['anos_aplicacao'])
-                    receitas_list.append(receita_row)
-                df_receitas_adicionais = pd.DataFrame(receitas_list)
-                df_receitas_adicionais.to_excel(writer, sheet_name='Receitas_Adicionais', index=False)
-
             # Receita por Cultura
             df_culturas_for_excel.to_excel(writer, sheet_name="Receita_por_Cultura", index=False)
             
-            # Configurações (Inflação e parâmetros)
+            # Configurações
             df_config = pd.DataFrame({
                 'Ano': anos,
                 'Inflacao (%)': st.session_state.get('inflacoes', [4.0] * len(anos))
             })
             df_config.to_excel(writer, sheet_name='Configuracoes_Inflacao', index=False)
-            
-            df_config_params = pd.DataFrame({
-                'Parametro': ['Receita Pessimista (%)', 'Despesa Pessimista (%)', 'Receita Otimista (%)', 'Despesa Otimista (%)'],
-                'Valor': [
-                    st.session_state.get('pess_receita', 15),
-                    st.session_state.get('pess_despesas', 10),
-                    st.session_state.get('otm_receita', 10),
-                    st.session_state.get('otm_despesas', 10)
-                ]
-            })
-            df_config_params.to_excel(writer, sheet_name='Parametros_Cenario', index=False)
 
         output_excel.seek(0)
         return output_excel
     
-    def criar_relatorio_pdf(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos):
-        """Cria um relatório PDF completo com todos os dados, gráficos e tabelas"""
-        try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import letter, A4
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import inch
-            import matplotlib.pyplot as plt
-            import matplotlib
-            matplotlib.use('Agg')  # Use non-interactive backend
-            
-            buffer = BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
-            
-            # Estilos
-            styles = getSampleStyleSheet()
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, spaceAfter=20, alignment=1)
-            heading_style = ParagraphStyle('CustomHeading', parent=styles['Heading2'], fontSize=12, spaceAfter=10)
-            subheading_style = ParagraphStyle('CustomSubHeading', parent=styles['Heading3'], fontSize=10, spaceAfter=8)
-            normal_style = ParagraphStyle('CustomNormal', parent=styles['Normal'], fontSize=8)
-            
-            story = []
-            
-            # === PÁGINA DE TÍTULO ===
-            timestamp = datetime.now().strftime("%d/%m/%Y às %H:%M")
-            story.append(Paragraph("📈 RELATÓRIO COMPLETO", title_style))
-            story.append(Paragraph("GESTOR DE PLANTIO - INDICADORES FINANCEIROS", title_style))
-            story.append(Spacer(1, 30))
-            story.append(Paragraph(f"Gerado em: {timestamp}", normal_style))
-            story.append(PageBreak())
-            
-            # === GRÁFICO: RECEITA vs LUCRO LÍQUIDO ===
-            story.append(Paragraph("RECEITA vs LUCRO LÍQUIDO POR CENÁRIO", heading_style))
-            
-            # Criar gráfico matplotlib
-            fig, ax = plt.subplots(figsize=(10, 6))
-            x = range(len(anos))
-            width = 0.25
-            
-            colors_map = {'Projetado': '#1f77b4', 'Pessimista': '#ff7f0e', 'Otimista': '#2ca02c'}
-            
-            for i, cenario in enumerate(nomes_cenarios):
-                receitas = all_dre_data[cenario]["Receita"]
-                lucros = all_dre_data[cenario]["Lucro Líquido"]
-                
-                ax.bar([p + width*i for p in x], receitas, width, 
-                       label=f'Receita ({cenario})', color=colors_map[cenario], alpha=0.7)
-                ax.bar([p + width*i for p in x], lucros, width,
-                       label=f'Lucro ({cenario})', color=colors_map[cenario], alpha=0.4)
-            
-            ax.set_xlabel('Anos')
-            ax.set_ylabel('Valores (R$)')
-            ax.set_title('Receita vs Lucro Líquido por Cenário')
-            ax.set_xticks([p + width for p in x])
-            ax.set_xticklabels(anos)
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'R$ {x/1e6:.1f}M'))
-            
-            plt.tight_layout()
-            
-            # Salvar gráfico temporariamente
-            img_buffer = BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
-            img_buffer.seek(0)
-            plt.close()
-            
-            # Adicionar ao PDF
-            story.append(Image(img_buffer, width=6*inch, height=3.6*inch))
-            story.append(Spacer(1, 20))
-            story.append(PageBreak())
-            
-            # === SLIDE: FLUXO DE CAIXA DETALHADO ===
-            if st.session_state.get('fluxo_caixa') is not None and not st.session_state['fluxo_caixa'].empty:
-                story.append(Paragraph("FLUXO DE CAIXA - DESPESAS POR CATEGORIA", heading_style))
-                
-                # Tabela de fluxo de caixa (primeiras 10 linhas)
-                df_fluxo = st.session_state['fluxo_caixa']
-                rows = min(len(df_fluxo) + 1, 12)  # Máximo 11 categorias + cabeçalho
-                cols = len(anos) + 1  # Anos + coluna categoria
-                
-                # Criar tabela
-                table_data = [(['Categoria'] + anos)]
-                
-                # Dados do fluxo de caixa
-                for categoria, valores in df_fluxo.head(11).iterrows():
-                    row_data = [categoria]
-                    row_data += [f"R$ {valores[ano]:,.0f}".replace(",", ".") for ano in anos]
-                    table_data.append(row_data)
-                
-                # Adicionar linha de totais
-                total_row = ["Total"] + [f"R$ {df_fluxo[ano].sum():,.0f}".replace(",", ".") for ano in anos]
-                table_data.append(total_row)
-                
-                # Criar tabela
-                table = Table(table_data, colWidths=[2.5*inch] + [0.8*inch]*len(anos))
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 7),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ]))
-                story.append(table)
-                story.append(PageBreak())
-            
-            # === INDICADORES FINANCEIROS DETALHADOS ===
-            for cenario in nomes_cenarios:
-                story.append(Paragraph(f"INDICADORES FINANCEIROS - CENÁRIO {cenario.upper()}", heading_style))
-                
-                indicators = all_indicators[cenario]
-                
-                # Criar tabela de indicadores
-                indicators_data = [['Indicador', 'Ano 1', 'Ano 2', 'Ano 3', 'Ano 4', 'Ano 5']]
-                
-                for indicator_name, values in indicators.items():
-                    if indicator_name not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]:
-                        if 'R$' in indicator_name:
-                            formatted_values = [f"R$ {v:,.0f}".replace(",", ".") for v in values]
-                        elif '%' in indicator_name or indicator_name == 'DSCR' or 'Real Gasto' in indicator_name or 'Operacional' in indicator_name:
-                            formatted_values = [f"{v:.2f}" + ("%" if "%" in indicator_name else "") for v in values]
-                        else:
-                            formatted_values = [f"{v:.2f}" for v in values]
-                        
-                        indicators_data.append([indicator_name] + formatted_values)
-                
-                # Adicionar CAGR
-                indicators_data.append(['CAGR Receita (%)', f"{indicators['CAGR Receita (%)']:.2f}%", '-', '-', '-', '-'])
-                indicators_data.append(['CAGR Lucro Líquido (%)', f"{indicators['CAGR Lucro Líquido (%)']:.2f}%", '-', '-', '-', '-'])
-                
-                # Criar tabela
-                indicators_table = Table(indicators_data, colWidths=[2.5*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch])
-                indicators_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 7),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ]))
-                story.append(indicators_table)
-                story.append(Spacer(1, 15))
-                
-                # === DRE COMPLETO ===
-                story.append(Paragraph(f"DRE DETALHADO - CENÁRIO {cenario.upper()}", subheading_style))
-                
-                dre_data = all_dre_data[cenario]
-                dre_table_data = [['Item', 'Ano 1', 'Ano 2', 'Ano 3', 'Ano 4', 'Ano 5']]
-                
-                for item, values in dre_data.items():
-                    formatted_values = [f"R$ {v:,.0f}".replace(",", ".") for v in values]
-                    dre_table_data.append([item] + formatted_values)
-                
-                dre_table = Table(dre_table_data, colWidths=[2.5*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch])
-                dre_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 7),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ]))
-                story.append(dre_table)
-                story.append(PageBreak())
-            
-            # === RECEITA POR CULTURA ===
-            story.append(Paragraph("RECEITA POR CULTURA (ANO BASE)", heading_style))
-            
-            cultura_data = [['Cultura', 'Receita Total (R$)', 'Área (ha)', 'Receita/ha (R$)']]
-            for _, row in df_culturas_for_excel.iterrows():
-                cultura_data.append([
-                    str(row['Cultura']),
-                    f"R$ {row['Receita Total']:,.0f}".replace(",", "."),
-                    f"{row['Área (ha)']:.1f}",
-                    f"R$ {row['Receita por ha']:,.0f}".replace(",", ".")
-                ])
-            
-            cultura_table = Table(cultura_data, colWidths=[2*inch, 1.5*inch, 1*inch, 1.5*inch])
-            cultura_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.green),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            story.append(cultura_table)
-            story.append(Spacer(1, 20))
-            
-            # === DADOS BASE ===
-            story.append(PageBreak())
-            story.append(Paragraph("DADOS BASE DO SISTEMA", heading_style))
-            
-            # Plantios
-            if st.session_state.get('plantios'):
-                story.append(Paragraph("Plantios Cadastrados:", subheading_style))
-                plantios_data = [['Nome', 'Cultura', 'Hectares', 'Sacas/ha', 'Preço/Saca']]
-                for nome, dados in st.session_state['plantios'].items():
-                    plantios_data.append([
-                        nome,
-                        dados.get('cultura', ''),
-                        f"{dados.get('hectares', 0):.1f}",
-                        f"{dados.get('sacas_por_hectare', 0):.1f}",
-                        f"R$ {dados.get('preco_saca', 0):.2f}".replace(".", ",")
-                    ])
-                
-                plantios_table = Table(plantios_data)
-                plantios_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 8),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-                ]))
-                story.append(plantios_table)
-                story.append(Spacer(1, 15))
-            
-            # Despesas resumidas
-            if st.session_state.get('despesas'):
-                story.append(Paragraph("Resumo de Despesas por Categoria:", subheading_style))
-                df_despesas = pd.DataFrame(st.session_state['despesas'])
-                despesas_resumo = df_despesas.groupby('Categoria')['Valor'].sum()
-                
-                despesas_data = [['Categoria', 'Valor Total (R$)']]
-                for categoria, valor in despesas_resumo.items():
-                    despesas_data.append([categoria, f"R$ {valor:,.0f}".replace(",", ".")])
-                
-                despesas_table = Table(despesas_data)
-                despesas_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.orange),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 8),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-                ]))
-                story.append(despesas_table)
-                story.append(Spacer(1, 15))
-            
-            # Configurações
-            story.append(Paragraph("Configurações do Sistema:", subheading_style))
-            config_data = [['Parâmetro', 'Valor']]
-            config_data.append(['Receita Pessimista (%)', f"-{st.session_state.get('pess_receita', 15)}%"])
-            config_data.append(['Despesa Pessimista (%)', f"+{st.session_state.get('pess_despesas', 10)}%"])
-            config_data.append(['Receita Otimista (%)', f"+{st.session_state.get('otm_receita', 10)}%"])
-            config_data.append(['Despesa Otimista (%)', f"-{st.session_state.get('otm_despesas', 10)}%"])
-            
-            for i, ano in enumerate(anos):
-                inflacao = st.session_state.get('inflacoes', [4.0] * len(anos))[i]
-                config_data.append([f'Inflação {ano}', f"{inflacao:.2f}%"])
-            
-            config_table = Table(config_data)
-            config_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.purple),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-            ]))
-            story.append(config_table)
-            
-            # Construir PDF
-            doc.build(story)
-            buffer.seek(0)
-            return buffer
-            
-        except ImportError as e:
-            st.error(f"Bibliotecas necessárias não encontradas. Instale com: pip install reportlab matplotlib")
-            return None
-        except Exception as e:
-            st.error(f"Erro ao gerar PDF: {str(e)}")
-            return None
-
     # Criar as colunas para os botões
     col_export1, col_export2, col_export3, col_export4 = st.columns([1, 1, 1, 1])
     
@@ -1017,27 +847,11 @@ def generate_excel_export(all_indicators, all_dre_data, df_culturas_for_excel, n
     
     with col_export2:
         if st.button("📄 Gerar PDF", type="secondary", key="relatorio_pdf"):
-            try:
-                pdf_buffer = criar_relatorio_pdf(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos)
-                if pdf_buffer:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"relatorio_indicadores_{timestamp}.pdf"
-                    
-                    st.download_button(
-                        label="⬇️ Baixar PDF", 
-                        data=pdf_buffer,
-                        file_name=filename,
-                        mime="application/pdf",
-                        key="download_pdf"
-                    )
-                    st.success("PDF gerado!")
-            except Exception as e:
-                st.error(f"Erro ao gerar PDF: {e}")
+            st.info("PDF com dados por cultura em desenvolvimento...")
     
     with col_export3:
         if st.button("🎯 Gerar PPT", key="relatorio_ppt"):
             try:
-                # Importar o gerador de PPT
                 from utils.ppt_generator import criar_relatorio_ppt
                 
                 ppt_buffer = criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos)
@@ -1056,32 +870,420 @@ def generate_excel_export(all_indicators, all_dre_data, df_culturas_for_excel, n
                 else:
                     st.error("Não foi possível gerar o PowerPoint. Verifique se as bibliotecas estão instaladas.")
             except ImportError as e:
-                st.error(f"""
-                ❌ **Erro de importação:** {str(e)}
-                
-                **Para usar a exportação PPT, instale:**
-                ```bash
-                pip install python-pptx
-                ```
-                """)
+                st.error(f"Erro de importação: {str(e)}")
             except Exception as e:
                 st.error(f"Erro ao gerar PowerPoint: {e}")
     
     with col_export4:
         st.info("""
-        📋 **Formatos:
+        📋 **Formatos:**
         
-        **Excel:** Dados completos
-        **PDF:** Relatório visual  
+        **Excel:** Dados completos + por cultura + fluxos de caixa
+        **PDF:** Relatório visual (em breve)
         **PPT:** Apresentação editável
         
-        Todos incluem gráficos, tabelas e indicadores.
+        Inclui análises consolidadas, por cultura e fluxos de caixa.
         """)
+
+def display_scenario_parameters(session_data):
+    """Exibe os parâmetros de cenário configurados."""
+    st.markdown("### ⚙️ Parâmetros dos Cenários")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📉 Receita Pessimista", f"-{session_data['pess_receita']}%")
+    with col2:
+        st.metric("📈 Despesa Pessimista", f"+{session_data['pess_despesas']}%")
+    with col3:
+        st.metric("📈 Receita Otimista", f"+{session_data['otm_receita']}%")
+    with col4:
+        st.metric("📉 Despesa Otimista", f"-{session_data['otm_despesas']}%")
+
+def display_revenue_by_crop(session_data):
+    """Exibe a receita por cultura e retorna DataFrame para exportação."""
+    st.markdown("### 🌾 Receita por Cultura (Ano Base)")
+    
+    plantios = session_data["plantios"]
+    
+    # Calcular receita por cultura
+    culturas_data = []
+    for plantio_nome, plantio_data in plantios.items():
+        cultura = plantio_data.get("cultura", "")
+        hectares = plantio_data.get("hectares", 0)
+        sacas_por_ha = plantio_data.get("sacas_por_hectare", 0)
+        preco_saca = plantio_data.get("preco_saca", 0)
+        
+        receita_total = hectares * sacas_por_ha * preco_saca
+        receita_por_ha = receita_total / hectares if hectares > 0 else 0
+        
+        culturas_data.append({
+            "Cultura": cultura,
+            "Receita Total": receita_total,
+            "Área (ha)": hectares,
+            "Receita por ha": receita_por_ha
+        })
+    
+    df_culturas = pd.DataFrame(culturas_data)
+    
+    # Agrupar por cultura (caso haja múltiplos plantios da mesma cultura)
+    df_culturas_grouped = df_culturas.groupby("Cultura").agg({
+        "Receita Total": "sum",
+        "Área (ha)": "sum"
+    }).reset_index()
+    
+    # Recalcular receita por hectare
+    df_culturas_grouped["Receita por ha"] = df_culturas_grouped["Receita Total"] / df_culturas_grouped["Área (ha)"]
+    
+    # Exibir tabela formatada
+    styled_df = df_culturas_grouped.style.format({
+        "Receita Total": format_brl,
+        "Área (ha)": "{:.1f}",
+        "Receita por ha": format_brl
+    })
+    
+    st.dataframe(styled_df, use_container_width=True)
+    
+    return df_culturas_grouped
+
+def display_indicators_table(all_indicators, anos):
+    """Exibe as tabelas de indicadores para todos os cenários."""
+    st.markdown("### 📊 Indicadores Financeiros por Cenário")
+    
+    tab1, tab2, tab3 = st.tabs(["📊 Projetado", "📉 Pessimista", "📈 Otimista"])
+    
+    tabs = [tab1, tab2, tab3]
+    cenarios = ["Projetado", "Pessimista", "Otimista"]
+    
+    for tab, cenario in zip(tabs, cenarios):
+        with tab:
+            indicators = all_indicators[cenario]
+            
+            # Criar DataFrame com indicadores (exceto CAGR)
+            df_indicators = pd.DataFrame({
+                k: v for k, v in indicators.items()
+                if k not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]
+            }, index=anos)
+            
+            # Aplicar formatação
+            styled_df = df_indicators.style.format({
+                "Margem Líquida (%)": "{:.2f}%",
+                "Retorno por Real Gasto": "{:.2f}",
+                "Liquidez Operacional": "{:.2f}",
+                "Endividamento (%)": "{:.2f}%",
+                "Produtividade por Hectare (R$/ha)": format_brl,
+                "Custo por Receita (%)": "{:.2f}%",
+                "DSCR": "{:.2f}",
+                "Break-Even Yield (sacas/ha)": "{:.1f}",
+                "ROA (%)": "{:.2f}%",
+                "Custo por Hectare (R$/ha)": format_brl
+            })
+            
+            st.dataframe(styled_df, use_container_width=True)
+            
+            # Métricas CAGR
+            col_cagr1, col_cagr2 = st.columns(2)
+            with col_cagr1:
+                st.metric("📈 CAGR Receita (5 anos)", f"{indicators['CAGR Receita (%)']:.2f}%")
+            with col_cagr2:
+                st.metric("📈 CAGR Lucro Líquido (5 anos)", f"{indicators['CAGR Lucro Líquido (%)']:.2f}%")
+
+def display_financial_summary(dre_cenarios, anos):
+    """Exibe resumo financeiro consolidado."""
+    st.markdown("### 💰 Resumo Financeiro Consolidado")
+    
+    # Criar resumo para cada cenário
+    resumo_data = []
+    for cenario, dre_data in dre_cenarios.items():
+        receita_total = sum(dre_data["Receita"])
+        lucro_total = sum(dre_data["Lucro Líquido"])
+        margem_media = (lucro_total / receita_total * 100) if receita_total > 0 else 0
+        
+        resumo_data.append({
+            "Cenário": cenario,
+            "Receita Total (5 anos)": receita_total,
+            "Lucro Total (5 anos)": lucro_total,
+            "Margem Média (%)": margem_media
+        })
+    
+    df_resumo = pd.DataFrame(resumo_data)
+    
+    styled_resumo = df_resumo.style.format({
+        "Receita Total (5 anos)": format_brl,
+        "Lucro Total (5 anos)": format_brl,
+        "Margem Média (%)": "{:.2f}%"
+    })
+    
+    st.dataframe(styled_resumo, use_container_width=True)
+
+def generate_visualizations(dre_cenarios, all_indicators, anos, nomes_cenarios, session_data):
+    """Gera visualizações gráficas dos dados."""
+    st.markdown("### 📈 Visualizações")
+    
+    col_viz1, col_viz2 = st.columns(2)
+    
+    with col_viz1:
+        st.markdown("#### Receita vs Lucro por Cenário")
+        
+        fig_receita_lucro = go.Figure()
+        
+        for cenario in nomes_cenarios:
+            dre_data = dre_cenarios[cenario]
+            fig_receita_lucro.add_trace(go.Scatter(
+                x=anos,
+                y=dre_data["Receita"],
+                mode='lines+markers',
+                name=f'Receita {cenario}',
+                line=dict(width=3)
+            ))
+            
+            fig_receita_lucro.add_trace(go.Scatter(
+                x=anos,
+                y=dre_data["Lucro Líquido"],
+                mode='lines+markers',
+                name=f'Lucro {cenario}',
+                line=dict(dash='dot')
+            ))
+        
+        fig_receita_lucro.update_layout(
+            title="Receita e Lucro Líquido por Cenário",
+            xaxis_title="Anos",
+            yaxis_title="Valores (R$)",
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_receita_lucro, use_container_width=True)
+    
+    with col_viz2:
+        st.markdown("#### Margem Líquida por Cenário")
+        
+        fig_margem = go.Figure()
+        
+        for cenario in nomes_cenarios:
+            indicators = all_indicators[cenario]
+            fig_margem.add_trace(go.Scatter(
+                x=anos,
+                y=indicators["Margem Líquida (%)"],
+                mode='lines+markers',
+                name=f'Margem {cenario}',
+                line=dict(width=3)
+            ))
+        
+        fig_margem.update_layout(
+            title="Margem Líquida (%) por Cenário",
+            xaxis_title="Anos",
+            yaxis_title="Margem (%)",
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_margem, use_container_width=True)
+
+def generate_financial_opinion(all_indicators, session_data):
+    """Gera parecer financeiro consolidado."""
+    st.markdown("#### 📝 Análise Consolidada dos Cenários")
+    
+    # Análise do cenário projetado
+    indicators_proj = all_indicators["Projetado"]
+    
+    margem_media = np.mean(indicators_proj["Margem Líquida (%)"])
+    retorno_medio = np.mean(indicators_proj["Retorno por Real Gasto"])
+    liquidez_media = np.mean(indicators_proj["Liquidez Operacional"])
+    endividamento_medio = np.mean(indicators_proj["Endividamento (%)"])
+    produtividade_media = np.mean(indicators_proj["Produtividade por Hectare (R$/ha)"])
+    custo_receita_media = np.mean(indicators_proj["Custo por Receita (%)"])
+    dscr_values = [x for x in indicators_proj["DSCR"] if x != float("inf")]
+    dscr_medio = np.mean(dscr_values) if dscr_values else float("inf")
+    break_even_media = np.mean(indicators_proj["Break-Even Yield (sacas/ha)"])
+    roa_medio = np.mean(indicators_proj["ROA (%)"])
+    
+    parecer = []
+    
+    # Margem Líquida
+    if margem_media < 10:
+        parecer.append(f"• **Margem Líquida Baixa ({margem_media:.2f}%)**: Rentabilidade abaixo do ideal. Considere renegociar preços com fornecedores ou investir em culturas de maior valor agregado.")
+    else:
+        parecer.append(f"• **Margem Líquida Saudável ({margem_media:.2f}%)**: Boa rentabilidade. Monitore custos para manter a consistência.")
+
+    # Retorno por Real Gasto
+    if retorno_medio < 0.2:
+        parecer.append(f"• **Retorno por Real Gasto Baixo ({retorno_medio:.2f})**: Gastos com baixo retorno. Avalie a redução de despesas operacionais ou otimize processos agrícolas.")
+    else:
+        parecer.append(f"• **Retorno por Real Gasto Adequado ({retorno_medio:.2f})**: Investimentos geram retorno satisfatório. Considere reinvestir em tecnologia para aumentar a produtividade.")
+
+    # Liquidez Operacional
+    if liquidez_media < 1.5:
+        parecer.append(f"• **Liquidez Operacional Baixa ({liquidez_media:.2f})**: Risco de dificuldades para cobrir custos operacionais. Negocie prazos de pagamento ou busque linhas de crédito de curto prazo.")
+    else:
+        parecer.append(f"• **Liquidez Operacional Confortável ({liquidez_media:.2f})**: Boa capacidade de sustentar operações. Mantenha reservas para safras incertas.")
+
+    # Endividamento
+    if endividamento_medio > 30:
+        parecer.append(f"• **Alto Endividamento ({endividamento_medio:.2f}%)**: Dívidas elevadas. Priorize a quitação de empréstimos de alto custo ou renegocie taxas de juros.")
+    else:
+        parecer.append(f"• **Endividamento Controlado ({endividamento_medio:.2f}%)**: Dívidas em nível gerenciável. Considere investimentos estratégicos, como expansão de área plantada.")
+
+    # Produtividade
+    parecer.append(f"• **Produtividade por Hectare ({produtividade_media:,.0f} R$/ha)**: {'Boa produtividade' if produtividade_media > 5000 else 'Produtividade pode ser melhorada'}. Compare com benchmarks da região.")
+
+    # Custo por Receita
+    if custo_receita_media > 70:
+        parecer.append(f"• **Custo por Receita Alto ({custo_receita_media:.2f}%)**: Custos operacionais consomem grande parte da receita. Analise insumos e processos para reduzir despesas.")
+    else:
+        parecer.append(f"• **Custo por Receita Controlado ({custo_receita_media:.2f}%)**: Boa gestão de custos. Continue monitorando preços de insumos.")
+
+    # DSCR
+    if dscr_medio != float("inf") and dscr_medio < 1.25:
+        parecer.append(f"• **DSCR Baixo ({dscr_medio:.2f})**: Risco de dificuldades no pagamento de dívidas. Considere reestruturar financiamentos ou aumentar a receita.")
+    else:
+        dscr_text = f"{dscr_medio:.2f}" if dscr_medio != float("inf") else "∞"
+        parecer.append(f"• **DSCR Adequado ({dscr_text})**: Boa capacidade de cobrir dívidas. Mantenha o lucro operacional estável.")
+
+    # Break-Even Yield
+    parecer.append(f"• **Break-Even Yield ({break_even_media:.1f} sacas/ha)**: {'Alto risco em safras ruins' if break_even_media > 50 else 'Risco moderado em cenários adversos'}.")
+
+    # ROA
+    if roa_medio < 5:
+        parecer.append(f"• **ROA Baixo ({roa_medio:.2f}%)**: Baixa eficiência no uso de ativos. Avalie a venda de ativos ociosos ou investimentos em equipamentos mais produtivos.")
+    else:
+        parecer.append(f"• **ROA Adequado ({roa_medio:.2f}%)**: Boa utilização dos ativos. Considere expansão controlada ou modernização.")
+
+    # CAGR
+    if indicators_proj["CAGR Lucro Líquido (%)"] < 0:
+        parecer.append(f"• **Crescimento Negativo do Lucro ({indicators_proj['CAGR Lucro Líquido (%)']:.2f}%)**: Lucro em queda. Revisar estratégias de custo, preço e produtividade.")
+    else:
+        parecer.append(f"• **Crescimento do Lucro ({indicators_proj['CAGR Lucro Líquido (%)']:.2f}%)**: Lucro em trajetória positiva. Considere reinvestir em áreas estratégicas.")
+
+    # Comparação entre cenários
+    lucro_proj = sum(session_data["dre_cenarios"]["Projetado"]["Lucro Líquido"])
+    lucro_pess = sum(session_data["dre_cenarios"]["Pessimista"]["Lucro Líquido"])
+    lucro_otm = sum(session_data["dre_cenarios"]["Otimista"]["Lucro Líquido"])
+    
+    diferenca_pess = ((lucro_pess - lucro_proj) / lucro_proj * 100) if lucro_proj != 0 else 0
+    diferenca_otm = ((lucro_otm - lucro_proj) / lucro_proj * 100) if lucro_proj != 0 else 0
+    
+    parecer.append(f"• **Análise de Cenários**: No cenário pessimista, o lucro seria {abs(diferenca_pess):.1f}% {'menor' if diferenca_pess < 0 else 'maior'}. No otimista, seria {diferenca_otm:.1f}% maior.")
+
+    # Usar quebras de linha duplas para Markdown
+    st.markdown("\n\n".join(parecer))
+
+def calculate_indicators_for_cultura(cultura, receitas_cultura, custos_cultura, anos, total_ativos_cultura):
+    """Calcula indicadores financeiros para uma cultura específica."""
+    # Verificar se os dados existem e não estão vazios
+    if not receitas_cultura:
+        return {}
+    
+    # Para DataFrame, usar .empty para verificar se está vazio
+    if isinstance(custos_cultura, pd.DataFrame) and custos_cultura.empty:
+        return {}
+    elif isinstance(custos_cultura, dict) and not custos_cultura:
+        return {}
+    
+    # Converter para listas se necessário
+    if isinstance(receitas_cultura, dict):
+        receitas = [receitas_cultura.get(ano, 0) for ano in anos]
+    else:
+        receitas = list(receitas_cultura)
+    
+    # Calcular custos totais por ano
+    if isinstance(custos_cultura, pd.DataFrame) and not custos_cultura.empty:
+        custos_totais = custos_cultura.sum(axis=0).tolist()
+    elif isinstance(custos_cultura, dict):
+        custos_totais = [custos_cultura.get(ano, 0) for ano in anos]
+    else:
+        custos_totais = [0] * len(anos)
+    
+    # Calcular lucro líquido
+    lucro_liquido = [r - c for r, c in zip(receitas, custos_totais)]
+    
+    indicators = {}
+    
+    # 1. Margem Líquida (%)
+    indicators["Margem Líquida (%)"] = [
+        (l / r * 100) if r != 0 else 0 for l, r in zip(lucro_liquido, receitas)
+    ]
+    
+    # 2. Retorno por Real Gasto
+    indicators["Retorno por Real Gasto"] = [
+        (l / c) if c != 0 else 0 for l, c in zip(lucro_liquido, custos_totais)
+    ]
+    
+    # 3. Liquidez Operacional
+    indicators["Liquidez Operacional"] = [
+        (r / c) if c != 0 else 0 for r, c in zip(receitas, custos_totais)
+    ]
+    
+    # 4. Custo por Receita (%)
+    indicators["Custo por Receita (%)"] = [
+        (c / r * 100) if r != 0 else 0 for c, r in zip(custos_totais, receitas)
+    ]
+    
+    # 5. ROA (%)
+    indicators["ROA (%)"] = [
+        (l / total_ativos_cultura * 100) if total_ativos_cultura != 0 else 0 for l in lucro_liquido
+    ]
+    
+    # 6. CAGR Receita (%)
+    indicators["CAGR Receita (%)"] = calcular_cagr(receitas[0], receitas[-1], len(anos) - 1)
+    
+    # 7. CAGR Lucro Líquido (%)
+    indicators["CAGR Lucro Líquido (%)"] = calcular_cagr(lucro_liquido[0], lucro_liquido[-1], len(anos) - 1)
+    
+    return indicators
+
+def generate_financial_opinion_cultura(indicators_cultura, cultura, hectares_cultura):
+    """Gera parecer financeiro específico para uma cultura."""
+    st.markdown(f"#### 🌿 Parecer Financeiro - {cultura}")
+    
+    margem_media = np.mean(indicators_cultura["Margem Líquida (%)"])
+    retorno_medio = np.mean(indicators_cultura["Retorno por Real Gasto"])
+    liquidez_media = np.mean(indicators_cultura["Liquidez Operacional"])
+    custo_receita_media = np.mean(indicators_cultura["Custo por Receita (%)"])
+    roa_medio = np.mean(indicators_cultura["ROA (%)"])
+    
+    parecer = []
+    
+    # Análises específicas por cultura
+    if margem_media < 10:
+        parecer.append(f"• **Margem Líquida Baixa ({margem_media:.2f}%)**: A cultura {cultura} apresenta rentabilidade abaixo do ideal. Considere otimizar técnicas de cultivo ou renegociar preços de venda.")
+    else:
+        parecer.append(f"• **Margem Líquida Saudável ({margem_media:.2f}%)**: A cultura {cultura} apresenta boa rentabilidade. Mantenha as práticas atuais.")
+    
+    if retorno_medio < 0.2:
+        parecer.append(f"• **Baixo Retorno por Real Gasto ({retorno_medio:.2f})**: Os investimentos em {cultura} estão gerando baixo retorno. Analise custos de insumos e produtividade.")
+    else:
+        parecer.append(f"• **Retorno Adequado por Real Gasto ({retorno_medio:.2f})**: Os investimentos em {cultura} estão gerando retorno satisfatório.")
+    
+    if liquidez_media < 1.5:
+        parecer.append(f"• **Liquidez Operacional Baixa ({liquidez_media:.2f})**: A cultura {cultura} pode ter dificuldades para cobrir seus custos operacionais.")
+    else:
+        parecer.append(f"• **Liquidez Operacional Confortável ({liquidez_media:.2f})**: A cultura {cultura} tem boa capacidade de cobrir seus custos operacionais.")
+    
+    if custo_receita_media > 70:
+        parecer.append(f"• **Alto Custo por Receita ({custo_receita_media:.2f}%)**: A cultura {cultura} tem custos elevados em relação à receita. Revise práticas agrícolas e custos de insumos.")
+    else:
+        parecer.append(f"• **Custo por Receita Controlado ({custo_receita_media:.2f}%)**: A cultura {cultura} apresenta boa gestão de custos.")
+    
+    if roa_medio < 5:
+        parecer.append(f"• **ROA Baixo ({roa_medio:.2f}%)**: A eficiência dos ativos destinados à {cultura} está baixa. Considere melhorar a produtividade por hectare.")
+    else:
+        parecer.append(f"• **ROA Adequado ({roa_medio:.2f}%)**: Boa eficiência dos ativos destinados à cultura {cultura}.")
+    
+    # CAGR Analysis
+    if indicators_cultura["CAGR Lucro Líquido (%)"] < 0:
+        parecer.append(f"• **Crescimento Negativo ({indicators_cultura['CAGR Lucro Líquido (%)']:.2f}%)**: O lucro da cultura {cultura} está em declínio. Reavaliar viabilidade.")
+    else:
+        parecer.append(f"• **Crescimento Positivo ({indicators_cultura['CAGR Lucro Líquido (%)']:.2f}%)**: A cultura {cultura} apresenta crescimento sustentável.")
+    
+    # Área específica
+    parecer.append(f"• **Área Cultivada**: {hectares_cultura:.1f} hectares representam {(hectares_cultura/st.session_state.get('hectares_total', hectares_cultura)*100):.1f}% da área total.")
+    
+    # Usar quebras de linha duplas para Markdown
+    st.markdown("\n\n".join(parecer))
 
 def main():
     display_indicator_explanation()
 
-    # Carrega todos os dados necessários do session_state e calcula os totais base
+    # Carrega todos os dados necessários
     session_data = get_base_financial_data()
 
     # Exibe os parâmetros de cenário
@@ -1097,12 +1299,17 @@ def main():
     # Calcula os indicadores para cada cenário
     all_indicators = {}
     for cenario_name in nomes_cenarios:
-        # Acessa os dados do DRE que foram salvos pelo 4_Fluxo_de_Caixa.py
         dre_data = session_data["dre_cenarios"][cenario_name]
         all_indicators[cenario_name] = calculate_indicators_for_scenario(cenario_name, dre_data, session_data)
 
-    # Exibe as tabelas de indicadores
+    # Exibe as tabelas de indicadores GERAIS
     display_indicators_table(all_indicators, anos)
+
+    # Exibe indicadores POR CULTURA E CENÁRIO
+    all_indicators_cultura_cenarios = display_indicators_by_cultura(session_data)
+
+    # NOVO: Exibe fluxo de caixa consolidado e por cultura
+    fluxo_consolidado, fluxos_por_cultura = generate_fluxo_caixa_consolidado_e_culturas(session_data, all_indicators_cultura_cenarios)
 
     # Exibe o resumo financeiro
     display_financial_summary(session_data["dre_cenarios"], anos)
@@ -1110,11 +1317,12 @@ def main():
     # Gera e exibe as visualizações 
     generate_visualizations(session_data["dre_cenarios"], all_indicators, anos, nomes_cenarios, session_data)
 
-    # Gera o parecer financeiro
+    # Gera o parecer financeiro GERAL
+    st.markdown("### 📝 Parecer Financeiro Consolidado")
     generate_financial_opinion(all_indicators, session_data)
     
-    # Botão de exportar para Excel
-    generate_excel_export(all_indicators, session_data["dre_cenarios"], df_culturas_for_excel, nomes_cenarios, anos)
+    # Atualizar exportações para incluir dados por cultura e cenários
+    generate_excel_export_with_cultura(all_indicators, session_data["dre_cenarios"], df_culturas_for_excel, nomes_cenarios, anos, all_indicators_cultura_cenarios, fluxo_consolidado, fluxos_por_cultura)
 
 if __name__ == "__main__":
     main()
