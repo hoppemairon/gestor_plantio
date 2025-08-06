@@ -878,9 +878,9 @@ def generate_excel_export_with_cultura(all_indicators, all_dre_data, df_culturas
         st.info("""
         📋 **Formatos:**
         
-        **Excel:** Dados completos + por cultura + fluxos de caixa
-        **PDF:** Relatório visual (em breve)
-        **PPT:** Apresentação editável
+        **Excel:** Dados completos + por cultura + fluxos de caixa \n
+        **PDF:** Relatório visual (em breve) \n
+        **PPT:** Apresentação editável \n
         
         Inclui análises consolidadas, por cultura e fluxos de caixa.
         """)

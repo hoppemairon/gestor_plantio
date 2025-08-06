@@ -6,15 +6,7 @@ from datetime import datetime
 
 def criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos, all_indicators_cultura_cenarios=None):
     """
-    Gera um relatório em PowerPoint com indicadores financeiros e análise por cultura.
-    
-    Args:
-        all_indicators: Indicadores por cenário
-        all_dre_data: Dados do DRE por cenário
-        df_culturas_for_excel: DataFrame com dados das culturas
-        nomes_cenarios: Lista com nomes dos cenários
-        anos: Lista dos anos
-        all_indicators_cultura_cenarios: Indicadores por cultura e cenário
+    Gera um relatório em PowerPoint copiando EXATAMENTE tudo da aba Indicadores.
     """
     try:
         # Importações necessárias
@@ -22,66 +14,13 @@ def criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nom
         from pptx.util import Inches, Pt
         from pptx.enum.text import PP_ALIGN
         from pptx.dml.color import RGBColor
-        import matplotlib.pyplot as plt
         
         # Criar nova apresentação
         prs = Presentation()
+        st.write("🔧 Iniciando geração PowerPoint baseado em 5_indicadores.py...")
         
-        # Função auxiliar para criar tabela
-        def criar_tabela_slide(title_text, data_dict, anos, slide_layout_idx=1):
-            slide_layout = prs.slide_layouts[slide_layout_idx]
-            slide = prs.slides.add_slide(slide_layout)
-            title = slide.shapes.title
-            title.text = title_text
-            
-            # Remover placeholder de conteúdo se existir
-            if len(slide.placeholders) > 1:
-                content_placeholder = slide.placeholders[1]
-                sp = content_placeholder.element
-                sp.getparent().remove(sp)
-            
-            # Criar tabela
-            rows = len(data_dict) + 1  # +1 para cabeçalho
-            cols = len(anos) + 1  # +1 para nome da linha
-            
-            left = Inches(0.5)
-            top = Inches(1.5)
-            width = Inches(9)
-            height = Inches(5)
-            
-            table = slide.shapes.add_table(rows, cols, left, top, width, height).table
-            
-            # Cabeçalho
-            table.cell(0, 0).text = "Item"
-            for i, ano in enumerate(anos):
-                table.cell(0, i + 1).text = str(ano)
-            
-            # Dados
-            for i, (item_name, values) in enumerate(data_dict.items()):
-                table.cell(i + 1, 0).text = item_name
-                for j, value in enumerate(values):
-                    if isinstance(value, (int, float)):
-                        table.cell(i + 1, j + 1).text = f"R$ {value:,.0f}"
-                    else:
-                        table.cell(i + 1, j + 1).text = str(value)
-            
-            # Formatação da tabela
-            for row in table.rows:
-                for cell in row.cells:
-                    cell.text_frame.paragraphs[0].font.size = Pt(10)
-                    
-            # Destacar cabeçalho
-            for j in range(cols):
-                cell = table.cell(0, j)
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(68, 114, 196)
-                cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
-                cell.text_frame.paragraphs[0].font.bold = True
-            
-            return slide
-
-        # Função auxiliar para criar tabela de indicadores
-        def criar_tabela_indicadores(title_text, indicators, anos):
+        # Função para criar slide com DataFrame (igual ao Excel)
+        def criar_slide_com_tabela(title_text, df):
             slide_layout = prs.slide_layouts[1]
             slide = prs.slides.add_slide(slide_layout)
             title = slide.shapes.title
@@ -93,535 +32,354 @@ def criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nom
                 sp = content_placeholder.element
                 sp.getparent().remove(sp)
             
-            # Preparar dados dos indicadores
-            indicadores_para_tabela = {}
-            
-            for key, values in indicators.items():
-                if key not in ["CAGR Receita (%)", "CAGR Lucro Líquido (%)"]:
-                    if isinstance(values, list):
-                        if "(%)" in key or "Margem" in key:
-                            indicadores_para_tabela[key] = [f"{v:.2f}%" for v in values]
-                        elif "R$" in key or "Hectare" in key or "Produtividade" in key:
-                            indicadores_para_tabela[key] = [f"R$ {v:,.0f}" for v in values]
-                        else:
-                            indicadores_para_tabela[key] = [f"{v:.2f}" for v in values]
-            
-            # Adicionar CAGR no final
-            indicadores_para_tabela["CAGR Receita (%)"] = [f"{indicators['CAGR Receita (%)']:.2f}%"] + [""] * (len(anos) - 1)
-            indicadores_para_tabela["CAGR Lucro Líquido (%)"] = [f"{indicators['CAGR Lucro Líquido (%)']:.2f}%"] + [""] * (len(anos) - 1)
-            
             # Criar tabela
-            rows = len(indicadores_para_tabela) + 1
-            cols = len(anos) + 1
+            rows = len(df) + 1
+            cols = len(df.columns)
             
-            left = Inches(0.5)
-            top = Inches(1.5)
-            width = Inches(9)
-            height = Inches(5.5)
+            left = Inches(0.2)
+            top = Inches(1.2)
+            width = Inches(9.6)
+            height = Inches(6)
             
             table = slide.shapes.add_table(rows, cols, left, top, width, height).table
             
             # Cabeçalho
-            table.cell(0, 0).text = "Indicador"
-            for i, ano in enumerate(anos):
-                table.cell(0, i + 1).text = str(ano)
-            
-            # Dados
-            for i, (indicator_name, values) in enumerate(indicadores_para_tabela.items()):
-                table.cell(i + 1, 0).text = indicator_name
-                for j, value in enumerate(values):
-                    table.cell(i + 1, j + 1).text = str(value)
-            
-            # Formatação
-            for row in table.rows:
-                for cell in row.cells:
-                    cell.text_frame.paragraphs[0].font.size = Pt(9)
-            
-            # Destacar cabeçalho
-            for j in range(cols):
+            for j, col_name in enumerate(df.columns):
                 cell = table.cell(0, j)
+                cell.text = str(col_name)
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = RGBColor(68, 114, 196)
                 cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
                 cell.text_frame.paragraphs[0].font.bold = True
+                cell.text_frame.paragraphs[0].font.size = Pt(9)
+            
+            # Dados
+            for i, (idx, row) in enumerate(df.iterrows()):
+                for j, value in enumerate(row):
+                    cell = table.cell(i + 1, j)
+                    
+                    if pd.isna(value):
+                        cell.text = ""
+                    elif isinstance(value, (int, float)):
+                        if "%" in str(df.columns[j]) or "Margem" in str(df.columns[j]):
+                            cell.text = f"{value:.2f}%"
+                        elif "R$" in str(df.columns[j]) or abs(value) >= 1000:
+                            cell.text = f"R$ {value:,.0f}"
+                        else:
+                            cell.text = f"{value:.2f}"
+                    else:
+                        cell.text = str(value)
+                    
+                    cell.text_frame.paragraphs[0].font.size = Pt(8)
             
             return slide
-
+        
         # SLIDE 1: ABERTURA
         slide_layout = prs.slide_layouts[0]
         slide = prs.slides.add_slide(slide_layout)
         title = slide.shapes.title
         subtitle = slide.placeholders[1]
         
-        title.text = "Análise Financeira Completa do Agronegócio"
-        subtitle.text = f"Indicadores por Cenário e Cultura | {anos[0]} - {anos[-1]}\nRelatório Gerado em {datetime.now().strftime('%d/%m/%Y')}"
-        
-        # SLIDE 2: RECEITA POR CULTURA (TABELA)
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
-        title = slide.shapes.title
-        title.text = "🌾 Receita por Cultura (Ano Base)"
-        
-        # Remover placeholder de conteúdo
-        content_placeholder = slide.placeholders[1]
-        sp = content_placeholder.element
-        sp.getparent().remove(sp)
-        
-        # Criar tabela de receitas por cultura
-        rows = len(df_culturas_for_excel) + 2  # +1 cabeçalho +1 total
-        cols = 4  # Cultura, Área, Receita Total, Receita/Ha
-        
-        left = Inches(1)
-        top = Inches(1.5)
-        width = Inches(8)
-        height = Inches(4)
-        
-        table = slide.shapes.add_table(rows, cols, left, top, width, height).table
-        
-        # Cabeçalho
-        headers = ["Cultura", "Área (ha)", "Receita Total", "Receita/Ha"]
-        for i, header in enumerate(headers):
-            table.cell(0, i).text = header
-        
-        # Dados por cultura
-        for i, (_, row) in enumerate(df_culturas_for_excel.iterrows()):
-            receita_por_ha = row['Receita Total'] / row['Área (ha)'] if row['Área (ha)'] > 0 else 0
-            table.cell(i + 1, 0).text = row['Cultura']
-            table.cell(i + 1, 1).text = f"{row['Área (ha)']:.1f}"
-            table.cell(i + 1, 2).text = f"R$ {row['Receita Total']:,.0f}"
-            table.cell(i + 1, 3).text = f"R$ {receita_por_ha:,.0f}"
-        
-        # Linha de total
-        total_row = len(df_culturas_for_excel) + 1
-        table.cell(total_row, 0).text = "TOTAL"
-        table.cell(total_row, 1).text = f"{df_culturas_for_excel['Área (ha)'].sum():.1f}"
-        table.cell(total_row, 2).text = f"R$ {df_culturas_for_excel['Receita Total'].sum():,.0f}"
-        table.cell(total_row, 3).text = f"R$ {df_culturas_for_excel['Receita Total'].sum() / df_culturas_for_excel['Área (ha)'].sum():,.0f}"
-        
-        # Formatação
-        for row in table.rows:
-            for cell in row.cells:
-                cell.text_frame.paragraphs[0].font.size = Pt(11)
-        
-        # Destacar cabeçalho
-        for j in range(4):
-            cell = table.cell(0, j)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(68, 114, 196)
-            cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
-            cell.text_frame.paragraphs[0].font.bold = True
-        
-        # Destacar total
-        for j in range(4):
-            cell = table.cell(total_row, j)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(217, 217, 217)
-            cell.text_frame.paragraphs[0].font.bold = True
+        title.text = "Relatório Completo de Indicadores Financeiros"
+        subtitle.text = f"Análise Consolidada e por Cultura | {anos[0]} - {anos[-1]}\nBaseado em 5_indicadores.py | {datetime.now().strftime('%d/%m/%Y')}"
 
-        # SLIDE 3: DADOS BASE (mantém texto)
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
-        title = slide.shapes.title
-        content = slide.placeholders[1]
+        # PEGAR DADOS EXATOS DO SESSION_STATE (como em 5_indicadores.py)
         
-        title.text = "📋 Dados Base do Sistema"
+        # 1. INDICADORES CONSOLIDADOS POR CENÁRIO
+        st.write("📊 Criando slides de indicadores consolidados...")
         
-        dados_base_text = "CONFIGURAÇÕES GERAIS:\n\n"
-        dados_base_text += f"• Período de Análise: {anos[0]} a {anos[-1]} ({len(anos)} anos)\n"
-        dados_base_text += f"• Número de Culturas: {len(df_culturas_for_excel)}\n"
-        dados_base_text += f"• Área Total: {df_culturas_for_excel['Área (ha)'].sum():.1f} hectares\n"
-        dados_base_text += f"• Número de Plantios: {len(st.session_state.get('plantios', {}))}\n"
-        dados_base_text += f"• Número de Despesas: {len(st.session_state.get('despesas', []))}\n"
-        dados_base_text += f"• Número de Empréstimos: {len(st.session_state.get('emprestimos', []))}\n\n"
-        
-        dados_base_text += "PARÂMETROS DE CENÁRIO:\n"
-        dados_base_text += f"• Receita Pessimista: -{st.session_state.get('pess_receita', 15)}%\n"
-        dados_base_text += f"• Despesa Pessimista: +{st.session_state.get('pess_despesas', 10)}%\n"
-        dados_base_text += f"• Receita Otimista: +{st.session_state.get('otm_receita', 10)}%\n"
-        dados_base_text += f"• Despesa Otimista: -{st.session_state.get('otm_despesas', 10)}%\n\n"
-        
-        dados_base_text += "INFLAÇÃO PROJETADA:\n"
-        for i, ano in enumerate(anos):
-            inflacao = st.session_state.get('inflacoes', [4.0] * len(anos))[i]
-            dados_base_text += f"• {ano}: {inflacao:.1f}%\n"
-        
-        content.text = dados_base_text
-        
-        # SEÇÃO CENÁRIO PROJETADO
-        
-        # SLIDE 4: DRE Completo - Projetado (TABELA)
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
-        title = slide.shapes.title
-        title.text = "📊 DRE Consolidado - Projetado"
-        
-        dre_data = all_dre_data["Projetado"]
-        dre_dict = {
-            "Receita Operacional": dre_data["Receita"],
-            "(-) Impostos s/ Venda": [-x for x in dre_data["Impostos Sobre Venda"]],
-            "(-) Despesas Operacionais": [-x for x in dre_data["Despesas Operacionais"]],
-            "(-) Despesas Administrativas": [-x for x in dre_data["Despesas Administrativas"]],
-            "(-) Despesas RH": [-x for x in dre_data["Despesas RH"]],
-            "(-) Despesas Extra Op.": [-x for x in dre_data["Despesas Extra Operacional"]],
-            "(-) Dividendos": [-x for x in dre_data["Dividendos"]],
-            "(-) Impostos s/ Resultado": [-x for x in dre_data["Impostos Sobre Resultado"]],
-            "(=) LUCRO LÍQUIDO": dre_data["Lucro Líquido"]
-        }
-        
-        criar_tabela_slide("📊 DRE Consolidado - Projetado", dre_dict, anos)
-
-        # SLIDE 5: INDICADORES - PROJETADO (TABELA)
-        criar_tabela_indicadores("📊 Indicadores Consolidado - Projetado", all_indicators["Projetado"], anos)
-
-        # SLIDE 6: PARECER - PROJETADO (texto formatado)
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
-        title = slide.shapes.title
-        content = slide.placeholders[1]
-        
-        title.text = "📊 Parecer Consolidado - Projetado"
-        
-        indicators = all_indicators["Projetado"]
-        margem_media = np.mean(indicators["Margem Líquida (%)"])
-        retorno_medio = np.mean(indicators["Retorno por Real Gasto"])
-        liquidez_media = np.mean(indicators["Liquidez Operacional"])
-        
-        parecer_text = "PARECER FINANCEIRO - PROJETADO:\n\n"
-        
-        if margem_media < 10:
-            parecer_text += f"🔴 MARGEM LÍQUIDA BAIXA ({margem_media:.1f}%):\n"
-            parecer_text += "• Rentabilidade abaixo do ideal\n"
-            parecer_text += "• Revisar estrutura de custos\n"
-            parecer_text += "• Renegociar preços de venda\n\n"
-        else:
-            parecer_text += f"✅ MARGEM LÍQUIDA SAUDÁVEL ({margem_media:.1f}%):\n"
-            parecer_text += "• Boa rentabilidade operacional\n"
-            parecer_text += "• Manter eficiência atual\n\n"
-        
-        if retorno_medio < 0.2:
-            parecer_text += f"🔴 BAIXO RETORNO ({retorno_medio:.2f}):\n"
-            parecer_text += "• Investimentos com baixo retorno\n"
-            parecer_text += "• Otimizar aplicação de recursos\n\n"
-        else:
-            parecer_text += f"✅ RETORNO ADEQUADO ({retorno_medio:.2f}):\n"
-            parecer_text += "• Boa eficiência dos investimentos\n\n"
-        
-        if liquidez_media < 1.5:
-            parecer_text += f"⚠️ LIQUIDEZ BAIXA ({liquidez_media:.2f}):\n"
-            parecer_text += "• Risco de fluxo de caixa\n"
-            parecer_text += "• Buscar linhas de crédito\n\n"
-        else:
-            parecer_text += f"✅ LIQUIDEZ CONFORTÁVEL ({liquidez_media:.2f}):\n"
-            parecer_text += "• Boa capacidade operacional\n\n"
-        
-        if indicators['CAGR Lucro Líquido (%)'] < 0:
-            parecer_text += f"🔴 CRESCIMENTO NEGATIVO ({indicators['CAGR Lucro Líquido (%)']:.1f}%):\n"
-            parecer_text += "• Revisar estratégia\n"
-            parecer_text += "• Analisar custos e preços"
-        else:
-            parecer_text += f"✅ CRESCIMENTO POSITIVO ({indicators['CAGR Lucro Líquido (%)']:.1f}%):\n"
-            parecer_text += "• Trajetória sustentável"
-        
-        content.text = parecer_text
-
-        # Por cultura - Projetado (se disponível)
-        if all_indicators_cultura_cenarios and "Projetado" in all_indicators_cultura_cenarios:
-            for cultura in all_indicators_cultura_cenarios["Projetado"].keys():
-                indicators_cultura = all_indicators_cultura_cenarios["Projetado"][cultura]
+        for cenario in nomes_cenarios:
+            emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
+            
+            # DRE Consolidado por cenário
+            if cenario in all_dre_data:
+                dre_df = pd.DataFrame(all_dre_data[cenario])
+                dre_df.index = anos
+                criar_slide_com_tabela(f"{emoji} DRE Consolidado - {cenario}", dre_df)
+            
+            # Indicadores Consolidados por cenário
+            if cenario in all_indicators:
+                # Pegar indicadores exatos como em 5_indicadores.py
+                indicators_data = {}
+                for key, values in all_indicators[cenario].items():
+                    if isinstance(values, list) and len(values) == len(anos):
+                        indicators_data[key] = values
                 
-                # DRE por cultura (TABELA ESTIMADA)
-                receitas_por_cultura = st.session_state.get('receitas_por_cultura_cenarios', {}).get('Projetado', {})
+                if indicators_data:
+                    indicators_df = pd.DataFrame(indicators_data)
+                    indicators_df.index = anos
+                    criar_slide_com_tabela(f"{emoji} Indicadores Consolidados - {cenario}", indicators_df)
                 
-                if cultura in receitas_por_cultura:
-                    receitas_cultura = [receitas_por_cultura[cultura].get(ano, 0) for ano in anos]
-                    margem_cultura = np.mean(indicators_cultura["Margem Líquida (%)"])
-                    
-                    custos_estimados = []
-                    lucros_estimados = []
-                    
-                    for receita_ano in receitas_cultura:
-                        lucro_ano = receita_ano * (margem_cultura / 100)
-                        custo_ano = receita_ano - lucro_ano
-                        custos_estimados.append(-custo_ano)  # Negativo para mostrar como despesa
-                        lucros_estimados.append(lucro_ano)
-                    
-                    dre_cultura_dict = {
-                        "(+) Receita": receitas_cultura,
-                        "(-) Custos e Despesas": custos_estimados,
-                        "(=) Lucro Líquido": lucros_estimados
-                    }
-                    
-                    criar_tabela_slide(f"📊 DRE - {cultura} - Projetado", dre_cultura_dict, anos)
-                    
-                    # Indicadores por cultura (TABELA)
-                    criar_tabela_indicadores(f"📊 Indicadores - {cultura} - Projetado", indicators_cultura, anos)
-                    
-                    # Parecer por cultura (TEXTO)
-                    slide_layout = prs.slide_layouts[1]
-                    slide = prs.slides.add_slide(slide_layout)
-                    title = slide.shapes.title
-                    content = slide.placeholders[1]
-                    
-                    title.text = f"📊 Parecer - {cultura} - Projetado"
-                    
-                    margem_media_cultura = np.mean(indicators_cultura["Margem Líquida (%)"])
-                    retorno_medio_cultura = np.mean(indicators_cultura["Retorno por Real Gasto"])
-                    
-                    parecer_cultura_text = f"PARECER - {cultura.upper()}:\n\n"
-                    
-                    if margem_media_cultura < 10:
-                        parecer_cultura_text += f"🔴 MARGEM BAIXA ({margem_media_cultura:.1f}%)\n"
-                        parecer_cultura_text += "• Otimizar técnicas de cultivo\n"
-                        parecer_cultura_text += "• Revisar custos de insumos\n\n"
-                    else:
-                        parecer_cultura_text += f"✅ MARGEM SAUDÁVEL ({margem_media_cultura:.1f}%)\n"
-                        parecer_cultura_text += "• Manter práticas atuais\n\n"
-                    
-                    if retorno_medio_cultura < 0.2:
-                        parecer_cultura_text += f"🔴 BAIXO RETORNO ({retorno_medio_cultura:.2f})\n"
-                        parecer_cultura_text += "• Revisar investimentos\n\n"
-                    else:
-                        parecer_cultura_text += f"✅ RETORNO ADEQUADO ({retorno_medio_cultura:.2f})\n\n"
-                    
-                    if indicators_cultura['CAGR Lucro Líquido (%)'] < 0:
-                        parecer_cultura_text += f"🔴 CRESCIMENTO NEGATIVO\n"
-                        parecer_cultura_text += "• Reavaliar viabilidade"
-                    else:
-                        parecer_cultura_text += f"✅ CRESCIMENTO POSITIVO\n"
-                        parecer_cultura_text += "• Cultura sustentável"
-                    
-                    content.text = parecer_cultura_text
-
-        # SEÇÃO CENÁRIO PESSIMISTA
-        
-        # DRE, Indicadores e Parecer - Pessimista (consolidado + culturas)
-        dre_data_pess = all_dre_data["Pessimista"]
-        dre_dict_pess = {
-            "Receita Operacional": dre_data_pess["Receita"],
-            "(-) Impostos s/ Venda": [-x for x in dre_data_pess["Impostos Sobre Venda"]],
-            "(-) Despesas Operacionais": [-x for x in dre_data_pess["Despesas Operacionais"]],
-            "(-) Despesas Administrativas": [-x for x in dre_data_pess["Despesas Administrativas"]],
-            "(-) Despesas RH": [-x for x in dre_data_pess["Despesas RH"]],
-            "(-) Despesas Extra Op.": [-x for x in dre_data_pess["Despesas Extra Operacional"]],
-            "(-) Dividendos": [-x for x in dre_data_pess["Dividendos"]],
-            "(-) Impostos s/ Resultado": [-x for x in dre_data_pess["Impostos Sobre Resultado"]],
-            "(=) LUCRO LÍQUIDO": dre_data_pess["Lucro Líquido"]
-        }
-        
-        criar_tabela_slide("📉 DRE Consolidado - Pessimista", dre_dict_pess, anos)
-        criar_tabela_indicadores("📉 Indicadores Consolidado - Pessimista", all_indicators["Pessimista"], anos)
-        
-        # Por cultura - Pessimista
-        if all_indicators_cultura_cenarios and "Pessimista" in all_indicators_cultura_cenarios:
-            for cultura in all_indicators_cultura_cenarios["Pessimista"].keys():
-                # Simular DRE por cultura (baseado nos indicadores)
-                indicators_cultura = all_indicators_cultura_cenarios["Pessimista"][cultura]
-                
-                # Criar slide DRE estimado para cultura
+                # Parecer consolidado (texto igual ao 5_indicadores.py)
                 slide_layout = prs.slide_layouts[1]
                 slide = prs.slides.add_slide(slide_layout)
                 title = slide.shapes.title
                 content = slide.placeholders[1]
                 
-                title.text = f"📊 DRE - {cultura} - Pessimista"
+                title.text = f"{emoji} Parecer Consolidado - {cenario}"
                 
-                # Estimar valores baseados nas receitas por cultura
-                receitas_por_cultura = st.session_state.get('receitas_por_cultura_cenarios', {}).get('Pessimista', {})
+                # COPIAR LÓGICA EXATA DO PARECER de 5_indicadores.py
+                margem_media = np.mean(all_indicators[cenario]["Margem Líquida (%)"])
+                retorno_medio = np.mean(all_indicators[cenario]["Retorno por Real Gasto"])
+                liquidez_media = np.mean(all_indicators[cenario]["Liquidez Operacional"])
+                roa_medio = np.mean(all_indicators[cenario]["ROA (%)"])
                 
-                if cultura in receitas_por_cultura:
-                    receita_cultura_total = sum(receitas_por_cultura[cultura].get(ano, 0) for ano in anos)
-                    margem_cultura = np.mean(indicators_cultura["Margem Líquida (%)"])
-                    lucro_estimado = receita_cultura_total * (margem_cultura / 100)
+                parecer_items = []
+                
+                # Análise de Margem
+                if margem_media < 10:
+                    parecer_items.append("🔴 **MARGEM LÍQUIDA BAIXA**")
+                    parecer_items.append(f"   Média: {margem_media:.1f}%")
+                    parecer_items.append("   • Rentabilidade abaixo do ideal")
+                    parecer_items.append("   • Necessário revisar custos")
+                elif margem_media < 20:
+                    parecer_items.append("⚠️ **MARGEM LÍQUIDA MODERADA**")
+                    parecer_items.append(f"   Média: {margem_media:.1f}%")
+                    parecer_items.append("   • Rentabilidade aceitável")
+                else:
+                    parecer_items.append("✅ **MARGEM LÍQUIDA EXCELENTE**")
+                    parecer_items.append(f"   Média: {margem_media:.1f}%")
+                    parecer_items.append("   • Excelente rentabilidade")
+                
+                parecer_items.append("")
+                
+                # Análise de Retorno
+                if retorno_medio < 0.15:
+                    parecer_items.append("🔴 **BAIXO RETORNO POR REAL GASTO**")
+                    parecer_items.append(f"   Cada R$ 1,00 gasto retorna R$ {retorno_medio:.2f}")
+                elif retorno_medio < 0.25:
+                    parecer_items.append("⚠️ **RETORNO MODERADO**")
+                    parecer_items.append(f"   Cada R$ 1,00 gasto retorna R$ {retorno_medio:.2f}")
+                else:
+                    parecer_items.append("✅ **EXCELENTE RETORNO**")
+                    parecer_items.append(f"   Cada R$ 1,00 gasto retorna R$ {retorno_medio:.2f}")
+                
+                parecer_items.append("")
+                
+                # Análise de Liquidez
+                if liquidez_media < 1.2:
+                    parecer_items.append("🔴 **LIQUIDEZ CRÍTICA**")
+                    parecer_items.append(f"   Índice: {liquidez_media:.2f}")
+                    parecer_items.append("   • Risco de fluxo de caixa")
+                elif liquidez_media < 1.8:
+                    parecer_items.append("⚠️ **LIQUIDEZ MODERADA**")
+                    parecer_items.append(f"   Índice: {liquidez_media:.2f}")
+                else:
+                    parecer_items.append("✅ **LIQUIDEZ CONFORTÁVEL**")
+                    parecer_items.append(f"   Índice: {liquidez_media:.2f}")
+                
+                parecer_items.append("")
+                
+                # ROA
+                parecer_items.append(f"📈 **ROA MÉDIO: {roa_medio:.1f}%**")
+                
+                # CAGR
+                cagr_receita = all_indicators[cenario].get("CAGR Receita (%)", 0)
+                cagr_lucro = all_indicators[cenario].get("CAGR Lucro Líquido (%)", 0)
+                
+                parecer_items.append(f"📊 **CRESCIMENTO:**")
+                parecer_items.append(f"   • CAGR Receita: {cagr_receita:.1f}%/ano")
+                parecer_items.append(f"   • CAGR Lucro: {cagr_lucro:.1f}%/ano")
+                
+                if cagr_lucro < 0:
+                    parecer_items.append("   🔴 Tendência de queda")
+                elif cagr_lucro < 5:
+                    parecer_items.append("   ⚠️ Crescimento baixo")
+                else:
+                    parecer_items.append("   ✅ Crescimento saudável")
+                
+                content.text = "\n".join(parecer_items)
+
+        # 2. INDICADORES POR CULTURA (copiando exato do session_state)
+        st.write("🌱 Criando slides por cultura...")
+        
+        # Buscar dados por cultura do session_state
+        dre_por_cultura_cenarios = st.session_state.get('dre_por_cultura_cenarios', {})
+        indicadores_por_cultura_cenarios = st.session_state.get('indicadores_por_cultura_cenarios', {})
+        
+        # Para cada cenário
+        for cenario in nomes_cenarios:
+            emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
+            st.write(f"   Processando {cenario}...")
+            
+            # Para cada cultura
+            if cenario in dre_por_cultura_cenarios:
+                for cultura in dre_por_cultura_cenarios[cenario].keys():
+                    st.write(f"     Cultura: {cultura}")
                     
-                    dre_cultura_text = f"DRE ESTIMADO - {cultura.upper()}:\n\n"
-                    dre_cultura_text += f"(+) Receita Total (5 anos): R$ {receita_cultura_total:,.0f}\n"
-                    dre_cultura_text += f"(-) Custos e Despesas: R$ {receita_cultura_total - lucro_estimado:,.0f}\n"
-                    dre_cultura_text += f"(=) Lucro Líquido: R$ {lucro_estimado:,.0f}\n\n"
-                    dre_cultura_text += f"MARGEM LÍQUIDA: {margem_cultura:.1f}%\n\n"
+                    # DRE por cultura
+                    dre_cultura = dre_por_cultura_cenarios[cenario][cultura]
+                    if dre_cultura:
+                        dre_cultura_df = pd.DataFrame(dre_cultura)
+                        dre_cultura_df.index = anos
+                        criar_slide_com_tabela(f"{emoji} DRE {cultura} - {cenario}", dre_cultura_df)
                     
-                    hectares_cultura = sum(
-                        plantio.get('hectares', 0) 
-                        for plantio in st.session_state.get('plantios', {}).values() 
-                        if plantio.get('cultura') == cultura
-                    )
-                    
-                    if hectares_cultura > 0:
-                        receita_por_ha = receita_cultura_total / hectares_cultura
-                        lucro_por_ha = lucro_estimado / hectares_cultura
+                    # Indicadores por cultura
+                    if cenario in indicadores_por_cultura_cenarios and cultura in indicadores_por_cultura_cenarios[cenario]:
+                        indicadores_cultura = indicadores_por_cultura_cenarios[cenario][cultura]
                         
-                        dre_cultura_text += f"ANÁLISE POR HECTARE:\n"
-                        dre_cultura_text += f"• Receita/Ha: R$ {receita_por_ha:,.0f}\n"
-                        dre_cultura_text += f"• Lucro/Ha: R$ {lucro_por_ha:,.0f}\n"
-                        dre_cultura_text += f"• Área Total: {hectares_cultura:.1f} hectares"
-                    
-                    content.text = dre_cultura_text
-                else:
-                    content.text = f"DRE para {cultura} não disponível - dados insuficientes"
-                
-                # Indicadores por cultura - Pessimista
-                slide_layout = prs.slide_layouts[1]
-                slide = prs.slides.add_slide(slide_layout)
-                title = slide.shapes.title
-                content = slide.placeholders[1]
-                
-                title.text = f"📊 Indicadores - {cultura} - Pessimista"
-                
-                margem_media_cultura = np.mean(indicators_cultura["Margem Líquida (%)"])
-                retorno_medio_cultura = np.mean(indicators_cultura["Retorno por Real Gasto"])
-                liquidez_media_cultura = np.mean(indicators_cultura["Liquidez Operacional"])
-                roa_medio_cultura = np.mean(indicators_cultura["ROA (%)"])
-                
-                indicadores_cultura_text = f"INDICADORES - {cultura.upper()}:\n\n"
-                indicadores_cultura_text += "RENTABILIDADE:\n"
-                indicadores_cultura_text += f"• Margem Líquida Média: {margem_media_cultura:.2f}%\n"
-                indicadores_cultura_text += f"• Retorno por Real Gasto: {retorno_medio_cultura:.2f}\n"
-                indicadores_cultura_text += f"• ROA Médio: {roa_medio_cultura:.2f}%\n\n"
-                
-                indicadores_cultura_text += "EFICIÊNCIA:\n"
-                indicadores_cultura_text += f"• Liquidez Operacional: {liquidez_media_cultura:.2f}\n"
-                
-                indicadores_cultura_text += f"\nCRESCIMENTO:\n"
-                indicadores_cultura_text += f"• CAGR Receita: {indicators_cultura['CAGR Receita (%)']:.2f}%\n"
-                indicadores_cultura_text += f"• CAGR Lucro: {indicators_cultura['CAGR Lucro Líquido (%)']:.2f}%\n"
-                
-                content.text = indicadores_cultura_text
-                
-                # Parecer por cultura - Pessimista
-                slide_layout = prs.slide_layouts[1]
-                slide = prs.slides.add_slide(slide_layout)
-                title = slide.shapes.title
-                content = slide.placeholders[1]
-                
-                title.text = f"📊 Parecer - {cultura} - Pessimista"
-                
-                parecer_cultura_text = f"PARECER - {cultura.upper()}:\n\n"
-                
-                if margem_media_cultura < 10:
-                    parecer_cultura_text += f"🔴 MARGEM BAIXA ({margem_media_cultura:.1f}%)\n"
-                    parecer_cultura_text += "• Otimizar técnicas de cultivo\n"
-                    parecer_cultura_text += "• Revisar custos de insumos\n\n"
-                else:
-                    parecer_cultura_text += f"✅ MARGEM SAUDÁVEL ({margem_media_cultura:.1f}%)\n"
-                    parecer_cultura_text += "• Manter práticas atuais\n\n"
-                
-                if retorno_medio_cultura < 0.2:
-                    parecer_cultura_text += f"🔴 BAIXO RETORNO ({retorno_medio_cultura:.2f})\n"
-                    parecer_cultura_text += "• Revisar investimentos\n\n"
-                else:
-                    parecer_cultura_text += f"✅ RETORNO ADEQUADO ({retorno_medio_cultura:.2f})\n\n"
-                
-                if indicators_cultura['CAGR Lucro Líquido (%)'] < 0:
-                    parecer_cultura_text += f"🔴 CRESCIMENTO NEGATIVO\n"
-                    parecer_cultura_text += "• Reavaliar viabilidade\n"
-                else:
-                    parecer_cultura_text += f"✅ CRESCIMENTO POSITIVO\n"
-                    parecer_cultura_text += "• Cultura sustentável\n"
-                
-                content.text = parecer_cultura_text
-        
-        # SEÇÃO CENÁRIO OTIMISTA
-        
-        # DRE, Indicadores e Parecer - Otimista (consolidado + culturas)  
-        dre_data_otm = all_dre_data["Otimista"]
-        dre_dict_otm = {
-            "Receita Operacional": dre_data_otm["Receita"],
-            "(-) Impostos s/ Venda": [-x for x in dre_data_otm["Impostos Sobre Venda"]],
-            "(-) Despesas Operacionais": [-x for x in dre_data_otm["Despesas Operacionais"]],
-            "(-) Despesas Administrativas": [-x for x in dre_data_otm["Despesas Administrativas"]],
-            "(-) Despesas RH": [-x for x in dre_data_otm["Despesas RH"]],
-            "(-) Despesas Extra Op.": [-x for x in dre_data_otm["Despesas Extra Operacional"]],
-            "(-) Dividendos": [-x for x in dre_data_otm["Dividendos"]],
-            "(-) Impostos s/ Resultado": [-x for x in dre_data_otm["Impostos Sobre Resultado"]],
-            "(=) LUCRO LÍQUIDO": dre_data_otm["Lucro Líquido"]
-        }
-        
-        criar_tabela_slide("📈 DRE Consolidado - Otimista", dre_dict_otm, anos)
-        criar_tabela_indicadores("📈 Indicadores Consolidado - Otimista", all_indicators["Otimista"], anos)
+                        # Filtrar apenas indicadores numéricos com listas
+                        indicators_cultura_data = {}
+                        for key, values in indicadores_cultura.items():
+                            if isinstance(values, list) and len(values) == len(anos):
+                                indicators_cultura_data[key] = values
+                        
+                        if indicators_cultura_data:
+                            indicators_cultura_df = pd.DataFrame(indicators_cultura_data)
+                            indicators_cultura_df.index = anos
+                            criar_slide_com_tabela(f"{emoji} Indicadores {cultura} - {cenario}", indicators_cultura_df)
+                        
+                        # Parecer por cultura (igual ao 5_indicadores.py)
+                        slide_layout = prs.slide_layouts[1]
+                        slide = prs.slides.add_slide(slide_layout)
+                        title = slide.shapes.title
+                        content = slide.placeholders[1]
+                        
+                        title.text = f"{emoji} Parecer {cultura} - {cenario}"
+                        
+                        # PARECER DETALHADO POR CULTURA (copiando lógica do 5_indicadores.py)
+                        try:
+                            margem_cultura = np.mean(indicadores_cultura.get("Margem Líquida (%)", [0]))
+                            retorno_cultura = np.mean(indicadores_cultura.get("Retorno por Real Gasto", [0]))
+                            liquidez_cultura = np.mean(indicadores_cultura.get("Liquidez Operacional", [0]))
+                            roa_cultura = np.mean(indicadores_cultura.get("ROA (%)", [0]))
+                            
+                            # Dados operacionais
+                            plantios_cultura = [p for p in st.session_state.get('plantios', {}).values() if p.get('cultura') == cultura]
+                            hectares_cultura = sum(p.get('hectares', 0) for p in plantios_cultura)
+                            
+                            receitas_por_cultura = st.session_state.get('receitas_por_cultura_cenarios', {}).get(cenario, {})
+                            receita_total_cultura = sum(receitas_por_cultura.get(cultura, {}).get(str(ano), 0) for ano in anos) if cultura in receitas_por_cultura else 0
+                            
+                            lucro_total_cultura = receita_total_cultura * (margem_cultura / 100) if margem_cultura > 0 else 0
+                            
+                            parecer_cultura_items = []
+                            parecer_cultura_items.append(f"ANÁLISE DETALHADA - {cultura.upper()}")
+                            parecer_cultura_items.append("="*50)
+                            parecer_cultura_items.append("")
+                            
+                            # Dados operacionais
+                            parecer_cultura_items.append("📊 DADOS OPERACIONAIS:")
+                            parecer_cultura_items.append(f"   • Área cultivada: {hectares_cultura:.1f} hectares")
+                            parecer_cultura_items.append(f"   • Receita total ({len(anos)} anos): R$ {receita_total_cultura:,.0f}")
+                            parecer_cultura_items.append(f"   • Lucro estimado: R$ {lucro_total_cultura:,.0f}")
+                            
+                            if hectares_cultura > 0:
+                                parecer_cultura_items.append(f"   • Receita/hectare/ano: R$ {receita_total_cultura/(hectares_cultura*len(anos)):,.0f}")
+                                parecer_cultura_items.append(f"   • Lucro/hectare/ano: R$ {lucro_total_cultura/(hectares_cultura*len(anos)):,.0f}")
+                            
+                            parecer_cultura_items.append("")
+                            
+                            # Análise de performance
+                            parecer_cultura_items.append("💰 ANÁLISE DE RENTABILIDADE:")
+                            if margem_cultura < 10:
+                                parecer_cultura_items.append(f"🔴 Margem líquida BAIXA: {margem_cultura:.1f}%")
+                                parecer_cultura_items.append("   • Ação urgente necessária")
+                                parecer_cultura_items.append("   • Revisar custos e técnicas")
+                            elif margem_cultura < 20:
+                                parecer_cultura_items.append(f"⚠️ Margem líquida MODERADA: {margem_cultura:.1f}%")
+                                parecer_cultura_items.append("   • Performance aceitável")
+                                parecer_cultura_items.append("   • Buscar melhorias")
+                            else:
+                                parecer_cultura_items.append(f"✅ Margem líquida EXCELENTE: {margem_cultura:.1f}%")
+                                parecer_cultura_items.append("   • Cultura muito rentável")
+                                parecer_cultura_items.append("   • Considerar expansão")
+                            
+                            parecer_cultura_items.append("")
+                            
+                            # Eficiência
+                            parecer_cultura_items.append("⚡ EFICIÊNCIA:")
+                            parecer_cultura_items.append(f"   • Retorno/Real gasto: R$ {retorno_cultura:.2f}")
+                            parecer_cultura_items.append(f"   • Liquidez operacional: {liquidez_cultura:.2f}")
+                            parecer_cultura_items.append(f"   • ROA: {roa_cultura:.1f}%")
+                            
+                            # CAGR se disponível
+                            cagr_receita_cultura = indicadores_cultura.get("CAGR Receita (%)", 0)
+                            cagr_lucro_cultura = indicadores_cultura.get("CAGR Lucro Líquido (%)", 0)
+                            
+                            if cagr_lucro_cultura != 0:
+                                parecer_cultura_items.append("")
+                                parecer_cultura_items.append("📈 CRESCIMENTO:")
+                                parecer_cultura_items.append(f"   • CAGR Receita: {cagr_receita_cultura:.1f}%/ano")
+                                parecer_cultura_items.append(f"   • CAGR Lucro: {cagr_lucro_cultura:.1f}%/ano")
+                                
+                                if cagr_lucro_cultura < 0:
+                                    parecer_cultura_items.append("   🔴 Tendência declinante")
+                                elif cagr_lucro_cultura < 5:
+                                    parecer_cultura_items.append("   ⚠️ Crescimento lento")
+                                else:
+                                    parecer_cultura_items.append("   ✅ Crescimento saudável")
+                            
+                            # Recomendação final
+                            parecer_cultura_items.append("")
+                            parecer_cultura_items.append("🎯 RECOMENDAÇÃO:")
+                            
+                            if margem_cultura >= 15 and retorno_cultura >= 0.2 and cagr_lucro_cultura >= 0:
+                                parecer_cultura_items.append("   ✅ CULTURA ALTAMENTE RECOMENDADA")
+                                parecer_cultura_items.append("   • Excelente performance geral")
+                                parecer_cultura_items.append("   • Considerar aumento da área")
+                            elif margem_cultura >= 10 and retorno_cultura >= 0.15:
+                                parecer_cultura_items.append("   ✅ CULTURA RECOMENDADA")
+                                parecer_cultura_items.append("   • Performance adequada")
+                                parecer_cultura_items.append("   • Manter área atual")
+                            else:
+                                parecer_cultura_items.append("   ⚠️ CULTURA REQUER ATENÇÃO")
+                                parecer_cultura_items.append("   • Baixa performance")
+                                parecer_cultura_items.append("   • Revisar estratégia")
+                            
+                            content.text = "\n".join(parecer_cultura_items)
+                            
+                        except Exception as e:
+                            content.text = f"Erro ao gerar parecer para {cultura}: {str(e)}"
 
-        # SLIDE: RECEITA vs LUCRO LÍQUIDO POR CENÁRIO (com gráfico)
+        # 3. TABELA COMPARATIVA FINAL (como no final de 5_indicadores.py)
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
         title = slide.shapes.title
-        content = slide.placeholders[1]
+        title.text = "📊 Resumo Comparativo Final"
         
-        title.text = "📈 Receita vs Lucro Líquido por Cenário"
-        
-        try:
-            # Criar gráfico comparativo
-            fig, ax = plt.subplots(figsize=(12, 7))
-            x = range(len(anos))
-            width = 0.25
-            colors_map = {'Projetado': '#1f77b4', 'Pessimista': '#ff7f0e', 'Otimista': '#2ca02c'}
-            
-            for i, cenario in enumerate(nomes_cenarios):
-                receitas = all_dre_data[cenario]["Receita"]
-                lucros = all_dre_data[cenario]["Lucro Líquido"]
+        # Criar tabela comparativa de todos os cenários
+        comparativo_data = []
+        for cenario in nomes_cenarios:
+            if cenario in all_indicators:
+                receita_total = sum(all_dre_data[cenario]["Receita"])
+                lucro_total = sum(all_dre_data[cenario]["Lucro Líquido"])
+                margem_media = np.mean(all_indicators[cenario]["Margem Líquida (%)"])
+                retorno_medio = np.mean(all_indicators[cenario]["Retorno por Real Gasto"])
                 
-                ax.bar([p + width*i for p in x], receitas, width, 
-                       label=f'Receita ({cenario})', color=colors_map[cenario], alpha=0.7)
-                ax.bar([p + width*i for p in x], lucros, width,
-                       label=f'Lucro ({cenario})', color=colors_map[cenario], alpha=0.4)
-            
-            ax.set_xlabel('Anos', fontsize=12)
-            ax.set_ylabel('Valores (R$)', fontsize=12)
-            ax.set_xticks([p + width for p in x])
-            ax.set_xticklabels(anos)
-            ax.legend()
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'R$ {x/1e6:.1f}M'))
-            plt.tight_layout()
-            
-            # Salvar gráfico
-            img_buffer = BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            plt.close()
-            
-            # Adicionar imagem ao slide (redimensionar para caber com texto)
-            slide.shapes.add_picture(img_buffer, Inches(1), Inches(2), Inches(8), Inches(4))
-            
-            # Adicionar análise textual abaixo do gráfico
-            grafico_text = "ANÁLISE COMPARATIVA:\n\n"
-            
-            lucro_proj = sum(all_dre_data["Projetado"]["Lucro Líquido"])
-            lucro_pess = sum(all_dre_data["Pessimista"]["Lucro Líquido"])
-            lucro_otm = sum(all_dre_data["Otimista"]["Lucro Líquido"])
-            
-            diff_pess = ((lucro_pess - lucro_proj) / lucro_proj * 100) if lucro_proj != 0 else 0
-            diff_otm = ((lucro_otm - lucro_proj) / lucro_proj * 100) if lucro_proj != 0 else 0
-            
-            grafico_text += f"• Cenário Pessimista: {diff_pess:+.1f}% vs Projetado\n"
-            grafico_text += f"• Cenário Otimista: {diff_otm:+.1f}% vs Projetado"
-            
-            # Adicionar texto acima do gráfico
-            text_shape = slide.shapes.add_textbox(Inches(1), Inches(1.2), Inches(8), Inches(0.6))
-            text_frame = text_shape.text_frame
-            text_frame.text = grafico_text
-            
-        except Exception as chart_error:
-            # Fallback se não conseguir criar o gráfico
-            content.text = f"COMPARATIVO DE RECEITA vs LUCRO LÍQUIDO:\n\nDados por cenário (5 anos):\n\n" + \
-                          f"📊 PROJETADO:\n• Receita: R$ {sum(all_dre_data['Projetado']['Receita']):,.0f}\n• Lucro: R$ {sum(all_dre_data['Projetado']['Lucro Líquido']):,.0f}\n\n" + \
-                          f"📉 PESSIMISTA:\n• Receita: R$ {sum(all_dre_data['Pessimista']['Receita']):,.0f}\n• Lucro: R$ {sum(all_dre_data['Pessimista']['Lucro Líquido']):,.0f}\n\n" + \
-                          f"📈 OTIMISTA:\n• Receita: R$ {sum(all_dre_data['Otimista']['Receita']):,.0f}\n• Lucro: R$ {sum(all_dre_data['Otimista']['Lucro Líquido']):,.0f}"
+                comparativo_data.append({
+                    "Cenário": cenario,
+                    f"Receita Total ({len(anos)} anos)": receita_total,
+                    f"Lucro Total ({len(anos)} anos)": lucro_total,
+                    "Margem Líquida Média (%)": margem_media,
+                    "Retorno por Real Gasto": retorno_medio
+                })
         
-        # SLIDE: AGRADECIMENTO
+        if comparativo_data:
+            comparativo_df = pd.DataFrame(comparativo_data)
+            criar_slide_com_tabela("📊 Comparativo Final - Todos os Cenários", comparativo_df)
+
+        # SLIDE FINAL: AGRADECIMENTO
         slide_layout = prs.slide_layouts[0]
         slide = prs.slides.add_slide(slide_layout)
         title = slide.shapes.title
         subtitle = slide.placeholders[1]
         
-        title.text = "Obrigado!"
-        subtitle.text = f"Relatório gerado pelo Sistema Gestor de Plantio\n{datetime.now().strftime('%d/%m/%Y às %H:%M')}\n\nAnálise Completa Finalizada"
-        
+        title.text = "Relatório Completo Finalizado"
+        subtitle.text = f"Baseado em 5_indicadores.py\nTodas as tabelas e pareceres incluídos\n{datetime.now().strftime('%d/%m/%Y às %H:%M')}"
+
         # Salvar apresentação
         output_ppt = BytesIO()
         prs.save(output_ppt)
         output_ppt.seek(0)
         
+        st.write(f"✅ PowerPoint gerado com {len(prs.slides)} slides")
+        st.write("📋 Conteúdo copiado exatamente do 5_indicadores.py")
+        
         return output_ppt
         
-    except ImportError:
-        return None
     except Exception as e:
-        st.error(f"Erro ao gerar PowerPoint: {str(e)}")
+        st.error(f"❌ Erro ao gerar PowerPoint: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
         return None
