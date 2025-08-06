@@ -1,5 +1,6 @@
-import streamlit as st
+"""App principal do Gestor de Plantio."""
 
+import streamlit as st
 st.set_page_config(page_title="Gestor de Plantio", layout="wide")
 
 st.title("Gestor de Plantio 🌱")

@@ -63,9 +63,9 @@ def criar_relatorio_ppt_completo(all_indicators, all_dre_data, df_culturas_for_e
                 sp = content_placeholder.element
                 sp.getparent().remove(sp)
             
-            # Criar tabela (incluir coluna extra para os nomes das linhas)
+            # Criar tabela
             rows = len(df) + 1
-            cols = len(df.columns) + 1  # +1 para coluna dos nomes das linhas
+            cols = len(df.columns)
             
             left = Inches(0.2)
             top = Inches(1.5)
@@ -74,14 +74,9 @@ def criar_relatorio_ppt_completo(all_indicators, all_dre_data, df_culturas_for_e
             
             table = slide.shapes.add_table(rows, cols, left, top, width, height).table
             
-            # Cabeçalho - primeira coluna vazia, depois os anos
-            cell = table.cell(0, 0)
-            cell.text = ""  # Célula superior esquerda vazia
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(68, 114, 196)
-            
+            # Cabeçalho
             for j, col_name in enumerate(df.columns):
-                cell = table.cell(0, j + 1)  # j+1 porque primeira coluna é dos nomes
+                cell = table.cell(0, j)
                 cell.text = str(col_name)
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = RGBColor(68, 114, 196)
@@ -91,27 +86,18 @@ def criar_relatorio_ppt_completo(all_indicators, all_dre_data, df_culturas_for_e
             
             # Dados
             for i, (idx, row) in enumerate(df.iterrows()):
-                # Primeira coluna: nome da linha (índice)
-                cell = table.cell(i + 1, 0)
-                cell.text = str(idx)  # Nome da linha (ex: "Receita", "Impostos", etc.)
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(217, 225, 242)  # Cor de fundo cinza claro
-                cell.text_frame.paragraphs[0].font.bold = True
-                cell.text_frame.paragraphs[0].font.size = Pt(8)
-                
-                # Demais colunas: valores
                 for j, value in enumerate(row):
-                    cell = table.cell(i + 1, j + 1)  # j+1 porque primeira coluna é dos nomes
+                    cell = table.cell(i + 1, j)
                     
                     if pd.isna(value):
                         cell.text = ""
                     elif isinstance(value, (int, float)):
                         if format_financeiro:
-                            if "%" in str(df.columns[j]) or "Margem" in str(df.columns[j]) or "%" in str(idx):
+                            if "%" in str(df.columns[j]) or "Margem" in str(df.columns[j]):
                                 cell.text = f"{value:.2f}%"
                             elif "R$" in str(df.columns[j]) or abs(value) >= 1000:
                                 cell.text = f"R$ {value:,.0f}"
-                            elif "CAGR" in str(df.columns[j]) or "CAGR" in str(idx):
+                            elif "CAGR" in str(df.columns[j]):
                                 cell.text = f"{value:.2f}%"
                             else:
                                 cell.text = f"{value:.2f}"
@@ -560,13 +546,11 @@ Base: Sistema 5_Indicadores.py"""
         for i, cenario in enumerate(nomes_cenarios):
             emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
             
-            # DRE Consolidado (transposto: colunas = anos, linhas = dados)
+            # DRE Consolidado
             if cenario in all_dre_data:
                 dre_df = pd.DataFrame(all_dre_data[cenario])
-                dre_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                # Transpor: agora anos ficam nas colunas, dados nas linhas
-                dre_df_transposto = dre_df.T
-                criar_slide_com_tabela(f"{emoji} DRE Consolidado - {cenario}", dre_df_transposto)
+                dre_df.index = [f"Ano {ano}" for ano in anos]
+                criar_slide_com_tabela(f"{emoji} DRE Consolidado - {cenario}", dre_df)
             
             # Indicadores Consolidados
             if cenario in all_indicators:
@@ -581,26 +565,24 @@ Base: Sistema 5_Indicadores.py"""
                 
                 if indicators_data:
                     indicators_df = pd.DataFrame(indicators_data)
-                    indicators_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                    # Transpor: agora anos ficam nas colunas, indicadores nas linhas
-                    indicators_df_transposto = indicators_df.T
+                    indicators_df.index = [f"Ano {ano}" for ano in anos]
                     
-                    # Separar em duas tabelas se houver muitas colunas (agora linhas após transposição)
-                    if len(indicators_df_transposto.index) > 8:  # Mudado para index (linhas)
+                    # Separar em duas tabelas se houver muitas colunas
+                    if len(indicators_df.columns) > 6:
                         # Primeira tabela - indicadores principais
-                        indicadores_principais = ["Margem Líquida (%)", "Retorno por Real Gasto", 
+                        cols_principais = ["Margem Líquida (%)", "Retorno por Real Gasto", 
                                          "Liquidez Operacional", "ROA (%)", 
                                          "Produtividade por Hectare (R$/ha)", "Custo por Receita (%)"]
-                        df_principais = indicators_df_transposto.loc[[ind for ind in indicadores_principais if ind in indicators_df_transposto.index]]
+                        df_principais = indicators_df[[col for col in cols_principais if col in indicators_df.columns]]
                         criar_slide_com_tabela(f"{emoji} Indicadores Principais - {cenario}", df_principais)
                         
                         # Segunda tabela - indicadores complementares  
-                        indicadores_complementares = [ind for ind in indicators_df_transposto.index if ind not in indicadores_principais]
-                        if indicadores_complementares:
-                            df_complementares = indicators_df_transposto.loc[indicadores_complementares]
+                        cols_complementares = [col for col in indicators_df.columns if col not in cols_principais]
+                        if cols_complementares:
+                            df_complementares = indicators_df[cols_complementares]
                             criar_slide_com_tabela(f"{emoji} Indicadores Complementares - {cenario}", df_complementares)
                     else:
-                        criar_slide_com_tabela(f"{emoji} Indicadores Consolidados - {cenario}", indicators_df_transposto)
+                        criar_slide_com_tabela(f"{emoji} Indicadores Consolidados - {cenario}", indicators_df)
             
             # Parecer consolidado detalhado
             if cenario in all_indicators:
@@ -712,15 +694,13 @@ Base: Sistema 5_Indicadores.py"""
                     for cultura in culturas:
                         st.write(f"     Processando {cultura}...")
                         
-                        # DRE da cultura (transposto)
+                        # DRE da cultura
                         if cenario in dre_por_cultura_cenarios and cultura in dre_por_cultura_cenarios[cenario]:
                             dre_cultura = dre_por_cultura_cenarios[cenario][cultura]
                             if dre_cultura:
                                 dre_cultura_df = pd.DataFrame(dre_cultura)
-                                dre_cultura_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                                # Transpor: agora anos ficam nas colunas, dados nas linhas
-                                dre_cultura_df_transposto = dre_cultura_df.T
-                                criar_slide_com_tabela(f"{emoji} DRE {cultura} - {cenario}", dre_cultura_df_transposto)
+                                dre_cultura_df.index = [f"Ano {ano}" for ano in anos]
+                                criar_slide_com_tabela(f"{emoji} DRE {cultura} - {cenario}", dre_cultura_df)
                         
                         # Indicadores da cultura
                         if cultura in all_indicators_cultura_cenarios[cenario]:
@@ -736,10 +716,8 @@ Base: Sistema 5_Indicadores.py"""
                             
                             if indicators_cultura_data:
                                 indicators_cultura_df = pd.DataFrame(indicators_cultura_data)
-                                indicators_cultura_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                                # Transpor: agora anos ficam nas colunas, indicadores nas linhas
-                                indicators_cultura_df_transposto = indicators_cultura_df.T
-                                criar_slide_com_tabela(f"{emoji} Indicadores {cultura} - {cenario}", indicators_cultura_df_transposto)
+                                indicators_cultura_df.index = [f"Ano {ano}" for ano in anos]
+                                criar_slide_com_tabela(f"{emoji} Indicadores {cultura} - {cenario}", indicators_cultura_df)
                             
                             # Parecer detalhado da cultura
                             hectares_cultura = sum(
@@ -756,7 +734,7 @@ Base: Sistema 5_Indicadores.py"""
         # ========== FLUXO DE CAIXA ==========
         st.write("💰 Criando slides de fluxo de caixa...")
         
-        # Fluxo de caixa consolidado (transposto)
+        # Fluxo de caixa consolidado
         for cenario in nomes_cenarios:
             emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
             
@@ -784,196 +762,8 @@ Base: Sistema 5_Indicadores.py"""
                 }
                 
                 fluxo_df = pd.DataFrame(fluxo_data)
-                fluxo_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                # Transpor: agora anos ficam nas colunas, itens do fluxo nas linhas
-                fluxo_df_transposto = fluxo_df.T
-                criar_slide_com_tabela(f"{emoji} Fluxo de Caixa Consolidado - {cenario}", fluxo_df_transposto)
-
-        # ========== FLUXO DE CAIXA POR CULTURA ==========
-        if all_indicators_cultura_cenarios:
-            st.write("🌱 Criando fluxos de caixa por cultura...")
-            
-            # Buscar dados por cultura do session_state
-            dre_por_cultura_cenarios = st.session_state.get('dre_por_cultura_cenarios', {})
-            receitas_por_cultura_cenarios = st.session_state.get('receitas_por_cultura_cenarios', {})
-            
-            for cenario in nomes_cenarios:
-                emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
-                
-                if cenario in all_indicators_cultura_cenarios:
-                    culturas = list(all_indicators_cultura_cenarios[cenario].keys())
-                    
-                    # Slide resumo de fluxo de caixa por cultura
-                    if culturas:
-                        resumo_fluxo_culturas = []
-                        
-                        for cultura in culturas:
-                            # Obter receitas da cultura
-                            receitas_cultura = receitas_por_cultura_cenarios.get(cenario, {}).get(cultura, {})
-                            receita_total_cultura = sum(receitas_cultura.get(str(ano), 0) for ano in anos) if receitas_cultura else 0
-                            
-                            # Obter custos da cultura (se disponível no DRE por cultura)
-                            custos_total_cultura = 0
-                            if cenario in dre_por_cultura_cenarios and cultura in dre_por_cultura_cenarios[cenario]:
-                                dre_cultura = dre_por_cultura_cenarios[cenario][cultura]
-                                if dre_cultura and "Lucro Líquido" in dre_cultura:
-                                    lucro_cultura = sum(dre_cultura["Lucro Líquido"])
-                                    custos_total_cultura = receita_total_cultura - lucro_cultura
-                                else:
-                                    # Estimar custos baseado na margem
-                                    margem_cultura = np.mean(all_indicators_cultura_cenarios[cenario][cultura].get("Margem Líquida (%)", [0]))
-                                    custos_total_cultura = receita_total_cultura * (1 - margem_cultura/100)
-                            
-                            fluxo_liquido_cultura = receita_total_cultura - custos_total_cultura
-                            
-                            # Dados operacionais
-                            plantios_cultura = [p for p in st.session_state.get('plantios', {}).values() if p.get('cultura') == cultura]
-                            hectares = sum(p.get('hectares', 0) for p in plantios_cultura)
-                            
-                            resumo_fluxo_culturas.append({
-                                "Cultura": cultura,
-                                "Área (ha)": hectares,
-                                f"Receita Total ({len(anos)}a)": receita_total_cultura,
-                                f"Custos Total ({len(anos)}a)": custos_total_cultura,
-                                f"Fluxo Líquido ({len(anos)}a)": fluxo_liquido_cultura,
-                                "Fluxo/ha": fluxo_liquido_cultura/hectares if hectares > 0 else 0
-                            })
-                        
-                        if resumo_fluxo_culturas:
-                            resumo_fluxo_df = pd.DataFrame(resumo_fluxo_culturas)
-                            criar_slide_com_tabela(f"{emoji} Resumo Fluxo de Caixa por Cultura - {cenario}", resumo_fluxo_df)
-                    
-                    # Fluxo de caixa detalhado por cultura
-                    for cultura in culturas:
-                        st.write(f"     Processando fluxo de caixa: {cultura}...")
-                        
-                        # Obter dados da cultura
-                        receitas_cultura = receitas_por_cultura_cenarios.get(cenario, {}).get(cultura, {})
-                        
-                        if receitas_cultura and cenario in dre_por_cultura_cenarios and cultura in dre_por_cultura_cenarios[cenario]:
-                            dre_cultura = dre_por_cultura_cenarios[cenario][cultura]
-                            
-                            if dre_cultura:
-                                # Construir fluxo de caixa detalhado da cultura
-                                fluxo_cultura_data = {}
-                                
-                                # Receitas
-                                receitas_por_ano = [receitas_cultura.get(str(ano), 0) for ano in anos]
-                                fluxo_cultura_data["Receita da Cultura"] = receitas_por_ano
-                                
-                                # Custos (se disponíveis no DRE da cultura)
-                                if "Despesas Operacionais" in dre_cultura:
-                                    fluxo_cultura_data["(-) Custos Operacionais"] = [-x for x in dre_cultura["Despesas Operacionais"]]
-                                
-                                if "Despesas Administrativas" in dre_cultura:
-                                    fluxo_cultura_data["(-) Custos Administrativos"] = [-x for x in dre_cultura["Despesas Administrativas"]]
-                                
-                                if "Despesas RH" in dre_cultura:
-                                    fluxo_cultura_data["(-) Custos RH"] = [-x for x in dre_cultura["Despesas RH"]]
-                                
-                                if "Impostos Sobre Venda" in dre_cultura:
-                                    fluxo_cultura_data["(-) Impostos s/ Venda"] = [-x for x in dre_cultura["Impostos Sobre Venda"]]
-                                
-                                # EBITDA da cultura
-                                ebitda_cultura = receitas_por_ano.copy()
-                                for key, values in fluxo_cultura_data.items():
-                                    if key.startswith("(-) "):
-                                        for i in range(len(ebitda_cultura)):
-                                            ebitda_cultura[i] += values[i]  # values já são negativos
-                                
-                                fluxo_cultura_data["(=) EBITDA"] = ebitda_cultura
-                                
-                                # Custos financeiros e outros
-                                if "Despesas Extra Operacional" in dre_cultura:
-                                    fluxo_cultura_data["(-) Custos Financeiros"] = [-x for x in dre_cultura["Despesas Extra Operacional"]]
-                                
-                                if "Dividendos" in dre_cultura:
-                                    fluxo_cultura_data["(-) Distribuições"] = [-x for x in dre_cultura["Dividendos"]]
-                                
-                                if "Impostos Sobre Resultado" in dre_cultura:
-                                    fluxo_cultura_data["(-) IR/CS"] = [-x for x in dre_cultura["Impostos Sobre Resultado"]]
-                                
-                                # Fluxo líquido da cultura
-                                if "Lucro Líquido" in dre_cultura:
-                                    fluxo_cultura_data["(=) FLUXO LÍQUIDO"] = dre_cultura["Lucro Líquido"]
-                                
-                                # Criar DataFrame e transpor
-                                fluxo_cultura_df = pd.DataFrame(fluxo_cultura_data)
-                                fluxo_cultura_df.index = [f"Ano {ano}" for ano in anos]  # Anos nas linhas primeiro
-                                # Transpor: agora anos ficam nas colunas, itens do fluxo nas linhas
-                                fluxo_cultura_df_transposto = fluxo_cultura_df.T
-                                
-                                criar_slide_com_tabela(f"{emoji} Fluxo de Caixa {cultura} - {cenario}", fluxo_cultura_df_transposto)
-                                
-                                # Análise do fluxo de caixa da cultura
-                                fluxo_total = sum(dre_cultura.get("Lucro Líquido", [0]))
-                                margem_cultura = np.mean(all_indicators_cultura_cenarios[cenario][cultura].get("Margem Líquida (%)", [0]))
-                                
-                                # Dados operacionais
-                                plantios_cultura = [p for p in st.session_state.get('plantios', {}).values() if p.get('cultura') == cultura]
-                                hectares = sum(p.get('hectares', 0) for p in plantios_cultura)
-                                
-                                analise_fluxo_cultura = f"""ANÁLISE DO FLUXO DE CAIXA - {cultura.upper()}
-CENÁRIO: {cenario.upper()}
-
-💰 RESUMO FINANCEIRO ({len(anos)} ANOS):
-• Fluxo de Caixa Líquido Total: R$ {fluxo_total:,.0f}
-• Fluxo Médio por Ano: R$ {fluxo_total/len(anos):,.0f}
-• Margem Líquida Média: {margem_cultura:.1f}%
-
-🌱 ANÁLISE OPERACIONAL:
-• Área cultivada: {hectares:.1f} hectares
-• Fluxo por Hectare (total): R$ {fluxo_total/hectares if hectares > 0 else 0:,.0f}
-• Fluxo por Hectare/Ano: R$ {fluxo_total/(hectares*len(anos)) if hectares > 0 else 0:,.0f}
-
-📊 AVALIAÇÃO DE PERFORMANCE:
-{'✅ Excelente geração de caixa' if fluxo_total > 0 and margem_cultura >= 15 else '⚠️ Geração de caixa moderada' if fluxo_total > 0 and margem_cultura >= 10 else '🔴 Baixa geração de caixa - atenção necessária'}
-
-💡 RECOMENDAÇÕES:
-{'• Manter estratégia atual e considerar expansão' if fluxo_total > 0 and margem_cultura >= 15 else '• Buscar otimizações para melhorar rentabilidade' if fluxo_total > 0 else '• Revisar viabilidade desta cultura urgentemente'}
-{'• Investir em tecnologia para aumentar produtividade' if margem_cultura >= 10 else '• Renegociar custos de insumos e operacionais'}
-• Monitorar sazonalidade e volatilidade do fluxo
-• Estabelecer reservas para períodos de baixa geração"""
-                                
-                                criar_slide_texto(f"{emoji} Análise Fluxo {cultura} - {cenario}", analise_fluxo_cultura)
-                        else:
-                            # Caso não haja dados suficientes, criar slide explicativo
-                            msg_sem_dados = f"""FLUXO DE CAIXA - {cultura.upper()} 
-CENÁRIO: {cenario.upper()}
-
-⚠️ DADOS INSUFICIENTES
-
-Os dados detalhados de fluxo de caixa para esta cultura não estão disponíveis.
-
-Possíveis causas:
-• DRE por cultura não foi calculado
-• Receitas específicas por cultura não disponíveis
-• Configuração de cenários incompleta
-
-💡 Para gerar o fluxo de caixa detalhado:
-• Execute a análise completa no módulo 5_Indicadores
-• Certifique-se que os dados por cultura estão disponíveis
-• Verifique se todos os cenários foram processados"""
-                            
-                            criar_slide_texto(f"{emoji} Fluxo de Caixa {cultura} - {cenario}", msg_sem_dados)
-
-        else:
-            # Caso all_indicators_cultura_cenarios não esteja disponível
-            st.write("⚠️ Dados de cultura não disponíveis - pulando fluxos de caixa por cultura")
-            for cenario in nomes_cenarios:
-                emoji = "📊" if cenario == "Projetado" else "📉" if cenario == "Pessimista" else "📈"
-                criar_slide_texto(f"{emoji} Fluxo de Caixa por Cultura - {cenario}", 
-                                f"""FLUXO DE CAIXA POR CULTURA - {cenario.upper()}
-
-⚠️ ANÁLISE POR CULTURA NÃO DISPONÍVEL
-
-Para gerar análises detalhadas por cultura, é necessário:
-
-1. Executar o módulo 5_Indicadores completamente
-2. Certificar que existem dados por cultura
-3. Processar todos os cenários (Projetado, Pessimista, Otimista)
-
-Os fluxos consolidados estão disponíveis nos slides anteriores.""")
+                fluxo_df.index = [f"Ano {ano}" for ano in anos]
+                criar_slide_com_tabela(f"{emoji} Fluxo de Caixa - {cenario}", fluxo_df)
 
         # ========== RECOMENDAÇÕES ESTRATÉGICAS FINAIS ==========
         

@@ -231,6 +231,93 @@ def get_base_financial_data():
         "receitas_por_cultura_cenarios": receitas_por_cultura_cenarios
     }
 
+def calcular_dre_por_cultura_cenarios(session_data):
+    """Calcula DRE específico por cultura e cenário baseado nas receitas e custos de cada cultura."""
+    receitas_por_cultura_cenarios = session_data.get("receitas_por_cultura_cenarios", {})
+    custos_por_cultura = session_data.get("custos_por_cultura", {})
+    anos = session_data.get("anos", [])
+    nomes_cenarios = ["Projetado", "Pessimista", "Otimista"]
+    
+    dre_por_cultura_cenarios = {}
+    
+    for cenario in nomes_cenarios:
+        dre_por_cultura_cenarios[cenario] = {}
+        
+        if cenario in receitas_por_cultura_cenarios:
+            receitas_cenario = receitas_por_cultura_cenarios[cenario]
+            
+            for cultura in receitas_cenario:
+                receitas_cultura = receitas_cenario[cultura]
+                custos_cultura = custos_por_cultura.get(cultura, {})
+                
+                # Calcular valores para cada ano
+                receitas_lista = []
+                custos_operacionais_lista = []
+                custos_administrativos_lista = []
+                custos_rh_lista = []
+                impostos_venda_lista = []
+                impostos_resultado_lista = []
+                dividendos_lista = []
+                despesas_extra_lista = []
+                
+                for ano in anos:
+                    receita_ano = receitas_cultura.get(str(ano), 0)
+                    receitas_lista.append(receita_ano)
+                    
+                    # Rateio proporcional dos custos baseado na receita da cultura
+                    receita_total_ano = sum(
+                        receitas_por_cultura_cenarios[cenario].get(c, {}).get(str(ano), 0) 
+                        for c in receitas_por_cultura_cenarios[cenario]
+                    )
+                    
+                    if receita_total_ano > 0:
+                        proporcao_cultura = receita_ano / receita_total_ano
+                    else:
+                        proporcao_cultura = 0
+                    
+                    # Aplicar proporção aos custos (usando DRE consolidado como base)
+                    dre_consolidado = session_data["dre_cenarios"].get(cenario, {})
+                    
+                    custo_operacional = dre_consolidado.get("Despesas Operacionais", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    custo_administrativo = dre_consolidado.get("Despesas Administrativas", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    custo_rh = dre_consolidado.get("Despesas RH", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    imposto_venda = dre_consolidado.get("Impostos Sobre Venda", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    imposto_resultado = dre_consolidado.get("Impostos Sobre Resultado", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    dividendo = dre_consolidado.get("Dividendos", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    despesa_extra = dre_consolidado.get("Despesas Extra Operacional", [0] * len(anos))[anos.index(ano)] * proporcao_cultura
+                    
+                    custos_operacionais_lista.append(custo_operacional)
+                    custos_administrativos_lista.append(custo_administrativo)
+                    custos_rh_lista.append(custo_rh)
+                    impostos_venda_lista.append(imposto_venda)
+                    impostos_resultado_lista.append(imposto_resultado)
+                    dividendos_lista.append(dividendo)
+                    despesas_extra_lista.append(despesa_extra)
+                
+                # Calcular lucro líquido
+                lucro_liquido_lista = []
+                for i in range(len(anos)):
+                    lucro = (receitas_lista[i] - impostos_venda_lista[i] - 
+                            custos_operacionais_lista[i] - custos_administrativos_lista[i] - 
+                            custos_rh_lista[i] - despesas_extra_lista[i] - 
+                            dividendos_lista[i] - impostos_resultado_lista[i])
+                    lucro_liquido_lista.append(lucro)
+                
+                # Montar DRE da cultura
+                dre_por_cultura_cenarios[cenario][cultura] = {
+                    "Receita": receitas_lista,
+                    "Impostos Sobre Venda": impostos_venda_lista,
+                    "Despesas Operacionais": custos_operacionais_lista,
+                    "Despesas Administrativas": custos_administrativos_lista,
+                    "Despesas RH": custos_rh_lista,
+                    "Despesas Extra Operacional": despesas_extra_lista,
+                    "Dividendos": dividendos_lista,
+                    "Impostos Sobre Resultado": impostos_resultado_lista,
+                    "Lucro Líquido": lucro_liquido_lista
+                }
+    
+    return dre_por_cultura_cenarios
+
 def calculate_indicators_for_scenario(scenario_name, dre_data, session_data):
     """Calcula todos os indicadores financeiros para um dado cenário."""
     anos = session_data["anos"]
@@ -854,7 +941,7 @@ def generate_excel_export_with_cultura(all_indicators, all_dre_data, df_culturas
             try:
                 from utils.ppt_generator import criar_relatorio_ppt
                 
-                ppt_buffer = criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos)
+                ppt_buffer = criar_relatorio_ppt(all_indicators, all_dre_data, df_culturas_for_excel, nomes_cenarios, anos, all_indicators_cultura_cenarios)
                 if ppt_buffer:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f"apresentacao_indicadores_{timestamp}.pptx"
@@ -1285,6 +1372,13 @@ def main():
 
     # Carrega todos os dados necessários
     session_data = get_base_financial_data()
+    
+    # Calcula DREs por cultura
+    dre_por_cultura_cenarios = calcular_dre_por_cultura_cenarios(session_data)
+    session_data["dre_por_cultura_cenarios"] = dre_por_cultura_cenarios
+    
+    # Salva no session_state para uso no PPT
+    st.session_state["dre_por_cultura_cenarios"] = dre_por_cultura_cenarios
 
     # Exibe os parâmetros de cenário
     display_scenario_parameters(session_data)
